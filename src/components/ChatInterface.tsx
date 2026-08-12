@@ -303,7 +303,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             <h2 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
               AI Task Assistant
             </h2>
-            <p className="text-[11px] text-zinc-400">Groq & Gemini Dual Engine • Voice, OCR, PDF & Chat</p>
+            <p className="text-[11px] text-zinc-400">Voice, OCR, PDF & Intelligent Task Chat</p>
           </div>
         </div>
       </div>

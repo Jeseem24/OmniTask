@@ -31,7 +31,7 @@ export default function Navbar() {
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-semibold border border-emerald-500/20">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Groq + Gemini Dual AI Active
+              AI Assistant Active
             </span>
           </div>
         </div>

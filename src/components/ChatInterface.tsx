@@ -46,6 +46,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   const audioChunksRef = useRef<Blob[]>([]);
   const baseTextRef = useRef<string>('');
   const finalTranscriptRef = useRef<string>('');
+  const shouldKeepListeningRef = useRef<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -79,6 +80,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
 
       baseTextRef.current = inputText;
       finalTranscriptRef.current = '';
+      shouldKeepListeningRef.current = true;
 
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -104,8 +106,17 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             setInputText(updated);
           };
 
+          // Continuous listening auto-restart on mobile silence
           recognition.onend = () => {
-            setIsRecording(false);
+            if (shouldKeepListeningRef.current && recognitionRef.current) {
+              try {
+                recognition.start();
+              } catch (e) {
+                console.log('Speech restart note:', e);
+              }
+            } else {
+              setIsRecording(false);
+            }
           };
 
           recognition.start();
@@ -156,6 +167,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   };
 
   const stopRecording = () => {
+    shouldKeepListeningRef.current = false;
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) {}
       recognitionRef.current = null;
@@ -589,7 +601,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             type="file"
             ref={photosInputRef}
             multiple
-            accept="image/*"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/heic,image/*"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
@@ -602,7 +614,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             type="file"
             ref={filesInputRef}
             multiple
-            accept="application/pdf,.doc,.docx,.txt,audio/*"
+            accept="application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);

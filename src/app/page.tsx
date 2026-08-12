@@ -141,20 +141,48 @@ export default function Home() {
     }
   };
 
+  const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'tasks'>('chat');
+
+  const pendingCount = tasks.filter((t) => t.status !== 'COMPLETED').length;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased">
       <Navbar />
       <SmartNotificationBanner tasks={tasks} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6">
+        {/* Mobile View Tab Switcher (< lg screens) */}
+        <div className="flex lg:hidden items-center p-1 bg-zinc-900 border border-zinc-800 rounded-2xl mb-4 shadow-lg">
+          <button
+            onClick={() => setActiveMobileTab('chat')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              activeMobileTab === 'chat'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            💬 AI Assistant
+          </button>
+          <button
+            onClick={() => setActiveMobileTab('tasks')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+              activeMobileTab === 'tasks'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            📋 Active Tasks ({pendingCount})
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Main Chatbot Interface (7 cols) */}
-          <div className="lg:col-span-7">
+          {/* Main Chatbot Interface (7 cols on desktop, conditionally visible on mobile) */}
+          <div className={`lg:col-span-7 ${activeMobileTab === 'chat' ? 'block' : 'hidden lg:block'}`}>
             <ChatInterface onTasksUpdated={fetchTasks} />
           </div>
 
-          {/* Live Task Matrix & Manual Add (5 cols) */}
-          <div className="lg:col-span-5 space-y-4">
+          {/* Live Task Matrix & Manual Add (5 cols on desktop, conditionally visible on mobile) */}
+          <div className={`lg:col-span-5 space-y-4 ${activeMobileTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
             {/* Header with Add Button */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 shadow-xl">
               <div className="flex items-center justify-between">

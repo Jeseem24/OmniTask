@@ -77,9 +77,19 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
   };
 
   const triggerBrowserNotification = (title: string, body: string) => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'granted') {
-        new Notification(title, { body, icon: '/favicon.ico' });
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready
+            .then((reg) => {
+              reg.showNotification(title, { body, icon: '/globe.svg' });
+            })
+            .catch((e) => {
+              console.log('SW notification fallback:', e);
+            });
+        }
+      } catch (err) {
+        console.error('Mobile notification suppressed:', err);
       }
     }
   };

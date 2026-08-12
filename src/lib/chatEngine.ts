@@ -368,10 +368,15 @@ export async function processUserChatMessage(
   }
 
   // 7. Open Conversational Chat via Groq Llama 3.3 70B & Gemini (with FULL Multi-Turn History & DB Memory)
-  const allPendingTasks = await prisma.task.findMany({
-    where: { status: 'PENDING' },
-    take: 15,
-  });
+  let allPendingTasks: any[] = [];
+  try {
+    allPendingTasks = await prisma.task.findMany({
+      where: { status: 'PENDING' },
+      take: 15,
+    });
+  } catch (e) {
+    console.error('DB Memory Fetch Error:', e);
+  }
 
   const taskContextString = allPendingTasks.length > 0
     ? `CURRENT PENDING TASKS IN USER DATABASE:\n` + allPendingTasks.map(t => `- "${t.title}" (Due: ${t.deadline ? new Date(t.deadline).toLocaleDateString('en-GB') : 'No deadline'})`).join('\n')

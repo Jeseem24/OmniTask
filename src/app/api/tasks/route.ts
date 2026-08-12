@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     return NextResponse.json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 });
+    return NextResponse.json([]);
   }
 }
 

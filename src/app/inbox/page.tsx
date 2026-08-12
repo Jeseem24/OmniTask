@@ -1,0 +1,16 @@
+'use client';
+
+import React from 'react';
+import Navbar from '@/components/Navbar';
+import SmartInbox from '@/components/SmartInbox';
+
+export default function InboxPage() {
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans antialiased">
+      <Navbar />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <SmartInbox />
+      </main>
+    </div>
+  );
+}

@@ -1,0 +1,68 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Subject {
+  id        String   @id @default(uuid())
+  code      String?
+  name      String
+  colorHex  String   @default("#3B82F6")
+  createdAt DateTime @default(now())
+  tasks     Task[]
+}
+
+model Source {
+  id          String   @id @default(uuid())
+  type        String
+  rawContent  String?
+  filePath    String?
+  createdAt   DateTime @default(now())
+  tasks       Task[]
+  extractions CandidateExtraction[]
+}
+
+model CandidateExtraction {
+  id            String   @id @default(uuid())
+  sourceId      String
+  source        Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  extractedJson String
+  status        String   @default("PENDING_REVIEW")
+  createdAt     DateTime @default(now())
+}
+
+model Task {
+  id                   String     @id @default(uuid())
+  sourceId             String?
+  source               Source?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  
+  parentTaskId         String?
+  parentTask           Task?      @relation("SubTasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks             Task[]     @relation("SubTasks")
+  
+  subjectId            String?
+  subject              Subject?   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  title                String
+  description          String?
+  taskType             String     @default("ASSIGNMENT")
+  status               String     @default("PENDING")
+
+  priorityScore        Float      @default(0.0)
+  importance           Int        @default(3)
+  deadline             DateTime?
+  isDeadlineAmbiguous  Boolean    @default(false)
+  estimatedEffortMins  Int        @default(30)
+  actualEffortMins     Int?
+
+  aiConfidence         Float?     @default(1.0)
+  userModified         Boolean    @default(false)
+
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  completedAt          DateTime?
+}

@@ -277,6 +277,8 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   };
 
+  const [headerTab, setHeaderTab] = useState<'All' | 'Tasks' | 'Documents'>('All');
+
   return (
     <div
       onDragOver={handleDragOver}
@@ -293,9 +295,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 bg-zinc-950/80 border-b border-zinc-800">
-        <div className="flex items-center gap-3">
+      {/* Header — Tabs & Sleek Action Controls */}
+      <div className="flex items-center justify-between px-4 py-3 bg-zinc-950/80 border-b border-zinc-800">
+        <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
             <Bot className="w-4 h-4" />
           </div>
@@ -303,8 +305,24 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             <h2 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
               AI Task Assistant
             </h2>
-            <p className="text-[11px] text-zinc-400">Voice, OCR, PDF & Intelligent Task Chat</p>
+            <p className="text-[10px] text-zinc-400">Voice, OCR, PDF & Intelligent Task Chat</p>
           </div>
+        </div>
+
+        {/* Tab Buttons */}
+        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+          {(['All', 'Tasks', 'Documents'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setHeaderTab(t)}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                headerTab === t ? 'bg-zinc-800 text-indigo-300 shadow' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -313,9 +331,12 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex items-start gap-3 ${
+            className={`flex items-start gap-3 transition-all duration-300 ${
               msg.role === 'user' ? 'flex-row-reverse' : ''
             }`}
+            style={{
+              animation: 'fade-up 350ms cubic-bezier(0.23, 1, 0.32, 1) both',
+            }}
           >
             <div
               className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs flex-shrink-0 mt-0.5 ${
@@ -604,13 +625,19 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             disabled={isSending || isRecording}
           />
 
-          {/* Send button */}
+          {/* Send button with active scale effect */}
           <button
             type="submit"
             disabled={isSending || (!inputText.trim() && !file) || isRecording}
-            className="p-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-semibold rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20 transition-all flex-shrink-0"
+            className="flex size-9 items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:opacity-40 text-white shadow-lg shadow-indigo-600/30 transition-all duration-200 enabled:active:scale-[0.95] flex-shrink-0"
           >
-            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {isSending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            )}
           </button>
         </div>
       </form>

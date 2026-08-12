@@ -118,18 +118,21 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         };
 
         recognition.onresult = (event: any) => {
+          let final = '';
           let interim = '';
-          for (let i = event.resultIndex; i < event.results.length; i++) {
+
+          for (let i = 0; i < event.results.length; i++) {
             const transcriptChunk = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-              finalTranscriptRef.current += transcriptChunk + ' ';
+              final += transcriptChunk + ' ';
             } else {
               interim += transcriptChunk;
             }
           }
+
           const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
-          const updated = prefix + finalTranscriptRef.current + interim;
-          setInputText(updated);
+          const cleanLive = (final + interim).replace(/\s+/g, ' ');
+          setInputText(prefix + cleanLive);
         };
 
         recognition.onerror = (e: any) => {
@@ -199,7 +202,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     shouldKeepListeningRef.current = false;
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) {}
@@ -209,6 +212,23 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
     setIsRecording(false);
+
+    // Auto-polish dictated text using AI for perfect grammar, spelling & punctuation
+    setInputText((current) => {
+      if (current.trim()) {
+        fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: current }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.text) setInputText(data.text);
+          })
+          .catch((e) => console.error('Text polishing error:', e));
+      }
+      return current;
+    });
   };
 
   // Drag and Drop Handlers

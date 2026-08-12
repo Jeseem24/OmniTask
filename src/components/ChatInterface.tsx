@@ -29,14 +29,16 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     },
   ]);
   const [inputText, setInputText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Voice recording state
+  // Voice recording state & Real-Time Word-by-Word Speech Recognition
   const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const baseTextRef = useRef<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,77 +63,75 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Voice Recording Handlers (Live Web Speech + Groq Whisper Rich Transcription)
-  const recognitionRef = useRef<any>(null);
-
+  // Real-Time Word-by-Word Voice Dictation
   const startRecording = async () => {
-    try {
-      // 1. Try Browser Native Web Speech Recognition for live typing effect
-      if (typeof window !== 'undefined') {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (SpeechRecognition) {
-          try {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-            recognition.onresult = (event: any) => {
-              let currentTranscript = '';
-              for (let i = event.resultIndex; i < event.results.length; i++) {
-                currentTranscript += event.results[i][0].transcript;
-              }
-              if (currentTranscript.trim()) {
-                setInputText((prev) => {
-                  const prefix = prev && !prev.endsWith(' ') ? prev + ' ' : prev;
-                  return prefix + currentTranscript;
-                });
-              }
-            };
+    baseTextRef.current = inputText;
 
-            recognition.start();
-            recognitionRef.current = recognition;
-          } catch (e) {
-            console.log('Web Speech API init note:', e);
+    // 1. Web Speech API for instantaneous, word-by-word streaming text into the input box
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event: any) => {
+          let transcript = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            transcript += event.results[i][0].transcript;
           }
-        }
-      }
+          if (transcript) {
+            setInputText(() => {
+              const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
+              return prefix + transcript;
+            });
+          }
+        };
 
-      // 2. Also record MediaRecorder audio chunk for Groq Whisper v3 precision transcription
+        recognition.onend = () => {
+          setIsRecording(false);
+        };
+
+        recognition.start();
+        recognitionRef.current = recognition;
+        setIsRecording(true);
+      } catch (e) {
+        console.error('Speech recognition start error:', e);
+      }
+    }
+
+    // 2. Backup Audio Recorder for Groq Whisper v3 precision accuracy
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         stream.getTracks().forEach((track) => track.stop());
 
-        // Send to Groq Whisper for rich, accurate transcription
         try {
           const formData = new FormData();
           formData.append('file', audioBlob, 'recording.webm');
-          const res = await fetch('/api/transcribe', {
-            method: 'POST',
-            body: formData,
-          });
+          const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
           if (res.ok) {
             const data = await res.json();
             if (data.text) {
               setInputText((prev) => {
-                // If text was already added by Web Speech, don't duplicate if identical
                 if (prev.includes(data.text.trim())) return prev;
-                return prev ? `${prev}\n${data.text}` : data.text;
+                return prev ? `${prev} ${data.text}` : data.text;
               });
             }
           }
         } catch (err) {
-          console.error('Whisper transcription fetch error:', err);
+          console.error('Whisper transcription error:', err);
         }
       };
 
@@ -139,7 +139,6 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       setIsRecording(true);
     } catch (err) {
       console.error('Microphone access error:', err);
-      alert('Could not access microphone. Please check browser permissions.');
     }
   };
 
@@ -149,9 +148,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       recognitionRef.current = null;
     }
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+      try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
+    setIsRecording(false);
   };
 
   // Drag and Drop Handlers
@@ -172,30 +171,29 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     e.stopPropagation();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setFile(e.dataTransfer.files[0]);
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      setAttachedFiles((prev) => [...prev, ...droppedFiles]);
     }
   };
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if ((!inputText.trim() && !file) || isSending) return;
+    if ((!inputText.trim() && attachedFiles.length === 0) || isSending) return;
 
     const currentText = inputText;
-    const currentFile = file;
+    const currentFiles = [...attachedFiles];
     setInputText('');
-    setFile(null);
+    setAttachedFiles([]);
 
     // 1. Append User Message
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: currentText || (currentFile?.type.includes('audio') ? '🎙️ Voice Note' : ''),
-      attachmentName: currentFile?.name,
-      attachmentType: currentFile?.type.includes('pdf')
+      content: currentText,
+      attachmentName: currentFiles.length > 0 ? currentFiles.map(f => f.name).join(', ') : undefined,
+      attachmentType: currentFiles.some(f => f.type.includes('pdf'))
         ? 'pdf'
-        : currentFile?.type.includes('audio')
-        ? 'audio'
-        : currentFile
+        : currentFiles.some(f => f.type.includes('image'))
         ? 'image'
         : undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -208,10 +206,12 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
 
     try {
       let res;
-      if (currentFile) {
+      if (currentFiles.length > 0) {
         const formData = new FormData();
         formData.append('message', currentText);
-        formData.append('file', currentFile);
+        for (const f of currentFiles) {
+          formData.append('file', f);
+        }
         formData.append('history', JSON.stringify(historyPayload));
         res = await fetch('/api/chat', {
           method: 'POST',
@@ -526,23 +526,34 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
 
       {/* Input Bar */}
       <form onSubmit={handleSendMessage} className="p-3 sm:p-4 bg-zinc-950/80 border-t border-zinc-800 space-y-2">
-        {file && (
-          <div className="flex items-center gap-2 pt-0.5">
-            <span className="flex h-7 items-center gap-1.5 bg-zinc-900 border border-zinc-800 py-1 pr-1.5 pl-2.5 text-xs text-zinc-300 rounded-full shadow-sm animate-in fade-in">
-              {file.type.includes('pdf') ? (
-                <FileText className="w-3.5 h-3.5 text-red-400" />
-              ) : (
-                <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
-              )}
-              <span className="max-w-44 truncate font-medium">{file.name}</span>
-              <button
-                type="button"
-                onClick={() => setFile(null)}
-                className="flex size-4 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 pt-0.5 max-h-24 overflow-y-auto">
+            {attachedFiles.map((f, idx) => (
+              <span
+                key={`${f.name}-${idx}`}
+                className="flex h-7 items-center gap-1.5 bg-zinc-900 border border-zinc-800 py-1 pr-1 pl-2 text-xs text-zinc-300 rounded-full shadow-sm animate-in fade-in"
               >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
+                {f.type.includes('image') ? (
+                  <img
+                    src={URL.createObjectURL(f)}
+                    alt={f.name}
+                    className="w-4 h-4 rounded-full object-cover"
+                  />
+                ) : f.type.includes('pdf') ? (
+                  <FileText className="w-3.5 h-3.5 text-red-400" />
+                ) : (
+                  <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
+                )}
+                <span className="max-w-36 truncate font-medium">{f.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                  className="flex size-4 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
           </div>
         )}
 
@@ -550,8 +561,14 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
           <input
             type="file"
             ref={fileInputRef}
+            multiple
             accept="image/*,application/pdf,audio/*"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                const newFiles = Array.from(e.target.files);
+                setAttachedFiles((prev) => [...prev, ...newFiles]);
+              }
+            }}
             className="hidden"
           />
 
@@ -565,31 +582,30 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             <Plus className="w-4.5 h-4.5" />
           </button>
 
-          {/* Equalizer Voice Microphone Button */}
+          {/* Equalizer Voice Microphone Button (Compact Square Button) */}
           {isRecording ? (
             <button
               type="button"
               onClick={stopRecording}
-              className="px-3 py-2 bg-red-600/20 text-red-400 border border-red-500/30 rounded-xl transition-all flex items-center gap-2 flex-shrink-0 active:scale-[0.94]"
-              title="Stop dictation"
+              className="flex size-9 items-center justify-center bg-red-600/20 text-red-400 border border-red-500/40 rounded-xl transition-all flex-shrink-0 active:scale-[0.94] shadow-md shadow-red-600/10"
+              title="Click to stop dictation"
             >
               <span className="flex h-3.5 items-center gap-[2.5px]">
                 {[0, 1, 2].map((i) => (
                   <span
                     key={i}
-                    className="w-[2.5px] rounded-full bg-red-400 animate-pulse"
-                    style={{ height: '100%', animation: `pulse 900ms ease-in-out ${i * 150}ms infinite` }}
+                    className="w-[2.5px] rounded-full bg-red-400"
+                    style={{ height: '100%', animation: `pulse 800ms ease-in-out ${i * 180}ms infinite` }}
                   />
                 ))}
               </span>
-              <span className="text-xs font-semibold">Listening…</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
               className="flex size-9 items-center justify-center text-zinc-400 hover:text-emerald-400 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
-              title="Dictate voice note"
+              title="Dictate text in real time"
             >
               <Mic className="w-4 h-4" />
             </button>
@@ -610,7 +626,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
                 handleSendMessage();
               }
             }}
-            placeholder={isRecording ? "Listening & transcribing into text…" : "Write a message or paste notes…"}
+            placeholder={isRecording ? "Listening & transcribing word by word into text..." : "Write a message or paste notes..."}
             className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800 focus:border-zinc-700'} rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
             disabled={isSending}
           />
@@ -618,7 +634,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
           {/* Send button with active scale effect */}
           <button
             type="submit"
-            disabled={isSending || (!inputText.trim() && !file) || isRecording}
+            disabled={isSending || (!inputText.trim() && attachedFiles.length === 0) || isRecording}
             className="flex size-9 items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:opacity-40 text-white shadow-lg shadow-indigo-600/30 transition-all duration-200 enabled:active:scale-[0.95] flex-shrink-0"
           >
             {isSending ? (

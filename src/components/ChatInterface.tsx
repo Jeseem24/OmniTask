@@ -61,9 +61,43 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Voice Recording Handlers
+  // Voice Recording Handlers (Live Web Speech + Groq Whisper Rich Transcription)
+  const recognitionRef = useRef<any>(null);
+
   const startRecording = async () => {
     try {
+      // 1. Try Browser Native Web Speech Recognition for live typing effect
+      if (typeof window !== 'undefined') {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event: any) => {
+              let currentTranscript = '';
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                currentTranscript += event.results[i][0].transcript;
+              }
+              if (currentTranscript.trim()) {
+                setInputText((prev) => {
+                  const prefix = prev && !prev.endsWith(' ') ? prev + ' ' : prev;
+                  return prefix + currentTranscript;
+                });
+              }
+            };
+
+            recognition.start();
+            recognitionRef.current = recognition;
+          } catch (e) {
+            console.log('Web Speech API init note:', e);
+          }
+        }
+      }
+
+      // 2. Also record MediaRecorder audio chunk for Groq Whisper v3 precision transcription
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -74,11 +108,31 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         }
       };
 
-      mediaRecorderRef.current.onstop = () => {
+      mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const voiceFile = new File([audioBlob], `voice-note-${Date.now()}.webm`, { type: 'audio/webm' });
-        setFile(voiceFile);
         stream.getTracks().forEach((track) => track.stop());
+
+        // Send to Groq Whisper for rich, accurate transcription
+        try {
+          const formData = new FormData();
+          formData.append('file', audioBlob, 'recording.webm');
+          const res = await fetch('/api/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.text) {
+              setInputText((prev) => {
+                // If text was already added by Web Speech, don't duplicate if identical
+                if (prev.includes(data.text.trim())) return prev;
+                return prev ? `${prev}\n${data.text}` : data.text;
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Whisper transcription fetch error:', err);
+        }
       };
 
       mediaRecorderRef.current.start();
@@ -90,6 +144,10 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   };
 
   const stopRecording = () => {
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
+      recognitionRef.current = null;
+    }
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);

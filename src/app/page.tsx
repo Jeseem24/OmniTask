@@ -29,7 +29,7 @@ export default function Home() {
   const fetchTasks = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/tasks');
+      const res = await fetch('/api/tasks?status=all');
       if (res.ok) {
         const data: TaskItem[] = await res.json();
         // Sort: Pending tasks first (by priority), Completed tasks at bottom

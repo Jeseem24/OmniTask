@@ -14,10 +14,8 @@ export async function GET(req: Request) {
       parentTaskId: null, // Return top-level tasks with subtasks included
     };
 
-    if (status) {
+    if (status && status !== 'all') {
       whereClause.status = status;
-    } else {
-      whereClause.status = { in: ['PENDING', 'IN_PROGRESS'] }; // Default active tasks
     }
 
     if (subjectId) {

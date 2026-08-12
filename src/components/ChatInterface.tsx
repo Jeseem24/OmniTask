@@ -58,12 +58,37 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     scrollToBottom();
   }, [messages, isSending]);
 
-  // Handle WhatsApp / System Web Share Target URL Params
+  // Handle WhatsApp / System Web Share Target URL Params & Binary Files
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      const shareId = params.get('shareId');
       const sharedText = params.get('text') || params.get('title') || params.get('url');
-      if (sharedText) {
+
+      if (shareId) {
+        fetch(`/api/share?id=${shareId}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.text) setInputText(data.text);
+            if (data.files && data.files.length > 0) {
+              const convertedFiles: File[] = data.files.map((f: any) => {
+                const arr = f.data.split(',');
+                const mime = arr[0].match(/:(.*?);/)[1];
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                  u8arr[n] = bstr.charCodeAt(n);
+                }
+                return new File([u8arr], f.name, { type: mime });
+              });
+              setAttachedFiles((prev) => [...prev, ...convertedFiles]);
+            }
+          })
+          .catch((err) => console.error('Share fetch error:', err));
+
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (sharedText && !sharedText.startsWith('Photo from') && !sharedText.startsWith('Document from')) {
         setInputText(sharedText);
         window.history.replaceState({}, document.title, window.location.pathname);
       }

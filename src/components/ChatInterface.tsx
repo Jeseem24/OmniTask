@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Paperclip, Image as ImageIcon, Loader2, Bot, User, Check, Trash2, Calendar, Clock, Plus, AlertCircle, FileText, Mic, MicOff, UploadCloud } from 'lucide-react';
+import { Sparkles, Send, Paperclip, Image as ImageIcon, Loader2, Bot, User, Check, Trash2, Calendar, Clock, Plus, AlertCircle, FileText, Mic, MicOff, UploadCloud, X } from 'lucide-react';
 import { ExtractedCandidateTask } from '@/lib/aiExtractor';
 
 export interface ChatMessage {
@@ -277,8 +277,6 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   };
 
-  const [headerTab, setHeaderTab] = useState<'All' | 'Tasks' | 'Documents'>('All');
-
   return (
     <div
       onDragOver={handleDragOver}
@@ -295,9 +293,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         </div>
       )}
 
-      {/* Header — Tabs & Sleek Action Controls */}
-      <div className="flex items-center justify-between px-4 py-3 bg-zinc-950/80 border-b border-zinc-800">
-        <div className="flex items-center gap-2">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 bg-zinc-950/80 border-b border-zinc-800">
+        <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
             <Bot className="w-4 h-4" />
           </div>
@@ -307,22 +305,6 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             </h2>
             <p className="text-[10px] text-zinc-400">Voice, OCR, PDF & Intelligent Task Chat</p>
           </div>
-        </div>
-
-        {/* Tab Buttons */}
-        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-          {(['All', 'Tasks', 'Documents'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setHeaderTab(t)}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                headerTab === t ? 'bg-zinc-800 text-indigo-300 shadow' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -545,24 +527,22 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       {/* Input Bar */}
       <form onSubmit={handleSendMessage} className="p-3 sm:p-4 bg-zinc-950/80 border-t border-zinc-800 space-y-2">
         {file && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-300">
-            <div className="flex items-center gap-2 truncate">
+          <div className="flex items-center gap-2 pt-0.5">
+            <span className="flex h-7 items-center gap-1.5 bg-zinc-900 border border-zinc-800 py-1 pr-1.5 pl-2.5 text-xs text-zinc-300 rounded-full shadow-sm animate-in fade-in">
               {file.type.includes('pdf') ? (
-                <FileText className="w-4 h-4 text-red-400 flex-shrink-0" />
-              ) : file.type.includes('audio') ? (
-                <Mic className="w-4 h-4 text-emerald-400 flex-shrink-0 animate-pulse" />
+                <FileText className="w-3.5 h-3.5 text-red-400" />
               ) : (
-                <ImageIcon className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
               )}
-              <span className="truncate font-medium">{file.name}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFile(null)}
-              className="text-zinc-500 hover:text-red-400 p-1"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+              <span className="max-w-44 truncate font-medium">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="flex size-4 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
           </div>
         )}
 
@@ -575,31 +555,41 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             className="hidden"
           />
 
+          {/* Tactile + Button */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 text-zinc-400 hover:text-indigo-400 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all flex-shrink-0"
-            title="Attach screenshot, image, PDF, or audio file"
+            className="flex size-9 items-center justify-center text-zinc-400 hover:text-indigo-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
+            title="Add photos, screenshots, or PDFs"
           >
-            <Paperclip className="w-4 h-4" />
+            <Plus className="w-4.5 h-4.5" />
           </button>
 
-          {/* Voice Microphone Button */}
+          {/* Equalizer Voice Microphone Button */}
           {isRecording ? (
             <button
               type="button"
               onClick={stopRecording}
-              className="p-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-all animate-pulse flex-shrink-0"
-              title="Stop Recording"
+              className="px-3 py-2 bg-red-600/20 text-red-400 border border-red-500/30 rounded-xl transition-all flex items-center gap-2 flex-shrink-0 active:scale-[0.94]"
+              title="Stop dictation"
             >
-              <MicOff className="w-4 h-4" />
+              <span className="flex h-3.5 items-center gap-[2.5px]">
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className="w-[2.5px] rounded-full bg-red-400 animate-pulse"
+                    style={{ height: '100%', animation: `pulse 900ms ease-in-out ${i * 150}ms infinite` }}
+                  />
+                ))}
+              </span>
+              <span className="text-xs font-semibold">Listening…</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
-              className="p-2.5 text-zinc-400 hover:text-emerald-400 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all flex-shrink-0"
-              title="Record Voice Note"
+              className="flex size-9 items-center justify-center text-zinc-400 hover:text-emerald-400 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
+              title="Dictate voice note"
             >
               <Mic className="w-4 h-4" />
             </button>
@@ -620,9 +610,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
                 handleSendMessage();
               }
             }}
-            placeholder={isRecording ? "Recording voice note... click red mic to stop" : "Tell assistant a task, paste message, or drag & drop files..."}
-            className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50' : 'border-zinc-800 focus:border-indigo-500'} rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
-            disabled={isSending || isRecording}
+            placeholder={isRecording ? "Listening & transcribing into text…" : "Write a message or paste notes…"}
+            className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800 focus:border-zinc-700'} rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
+            disabled={isSending}
           />
 
           {/* Send button with active scale effect */}

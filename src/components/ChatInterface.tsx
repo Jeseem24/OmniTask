@@ -39,16 +39,15 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   const photosInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
 
-  // Voice recording state & Real-Time Hybrid Dictation (WebSpeech Live Preview + Whisper v3 Precision)
+  // Voice recording state & ChatGPT-Grade Voice Dictation Pipeline
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const timerRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const baseTextRef = useRef<string>('');
-  const finalTranscriptRef = useRef<string>('');
-  const shouldKeepListeningRef = useRef<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +96,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Hybrid Real-Time Dictation: Web Speech Live Preview + Groq Whisper Large v3 Precision Finalizing
+  // ChatGPT-Grade Voice Dictation: High-Fidelity Audio Stream -> Groq Whisper Large v3 -> Llama 3.3 70B
   const startRecording = async () => {
     if (typeof window === 'undefined') return;
 
@@ -107,12 +106,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
-
       baseTextRef.current = inputText;
-      finalTranscriptRef.current = '';
-      shouldKeepListeningRef.current = true;
 
-      // 2. High-Fidelity MediaRecorder for Groq Whisper v3 Audio Capture
+      // 2. High-Fidelity MediaRecorder
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/mp4')
@@ -133,7 +129,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
           streamRef.current = null;
         }
 
-        // Send Pristine Audio to Groq Whisper Large v3 + Llama 3.3 70B Formatting Pipeline
+        // Send Audio to Groq Whisper Large v3 + Llama 3.3 70B
         if (audioBlob.size > 0) {
           setIsTranscribing(true);
           try {
@@ -157,48 +153,11 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
 
       mediaRecorderRef.current.start(200);
 
-      // 3. Web Speech API for Instantaneous Live Streaming Preview
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-      if (SpeechRecognition) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
-
-          recognition.onresult = (event: any) => {
-            let final = '';
-            let interim = '';
-            for (let i = 0; i < event.results.length; i++) {
-              const transcriptChunk = event.results[i][0].transcript;
-              if (event.results[i].isFinal) {
-                final += transcriptChunk + ' ';
-              } else {
-                interim += transcriptChunk;
-              }
-            }
-            const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
-            const cleanLive = (final + interim).replace(/\s+/g, ' ');
-            setInputText(prefix + cleanLive);
-          };
-
-          recognition.onerror = (e: any) => {
-            console.error('Web Speech error:', e);
-          };
-
-          recognition.onend = () => {
-            if (shouldKeepListeningRef.current && recognitionRef.current) {
-              try { recognition.start(); } catch (e) {}
-            }
-          };
-
-          recognition.start();
-          recognitionRef.current = recognition;
-        } catch (e) {
-          console.error('Speech recognition live preview note:', e);
-        }
-      }
+      // 3. Start Recording Timer
+      setRecordingSeconds(0);
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
 
       setIsRecording(true);
     } catch (err) {
@@ -208,10 +167,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   };
 
   const stopRecording = () => {
-    shouldKeepListeningRef.current = false;
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) {}
-      recognitionRef.current = null;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
@@ -674,32 +632,36 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             <Plus className="w-4.5 h-4.5" />
           </button>
 
-          {/* Equalizer Voice Microphone Button (Compact Square Button) */}
+          {/* ChatGPT-Style Recording Soundwave Button & Timer */}
           {isRecording ? (
             <button
               type="button"
               onClick={stopRecording}
-              className="flex size-9 items-center justify-center bg-red-600/20 text-red-400 border border-red-500/40 rounded-xl transition-all flex-shrink-0 active:scale-[0.94] shadow-md shadow-red-600/10"
+              className="px-3 py-2 bg-red-600/20 text-red-400 border border-red-500/40 rounded-xl transition-all flex items-center gap-2 flex-shrink-0 active:scale-[0.94] shadow-md shadow-red-600/10"
               title="Click to stop dictation"
             >
               <span className="flex h-3.5 items-center gap-[2.5px]">
-                {[0, 1, 2].map((i) => (
+                {[0, 1, 2, 3].map((i) => (
                   <span
                     key={i}
-                    className="w-[2.5px] rounded-full bg-red-400"
-                    style={{ height: '100%', animation: `pulse 800ms ease-in-out ${i * 180}ms infinite` }}
+                    className="w-[2.5px] rounded-full bg-red-400 animate-pulse"
+                    style={{ height: '100%', animation: `pulse 700ms ease-in-out ${i * 150}ms infinite` }}
                   />
                 ))}
+              </span>
+              <span className="text-xs font-mono font-bold">
+                {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, '0')}
               </span>
             </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
-              className="flex size-9 items-center justify-center text-zinc-400 hover:text-emerald-400 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
-              title="Dictate text in real time"
+              disabled={isTranscribing}
+              className="flex size-9 items-center justify-center text-zinc-400 hover:text-emerald-400 disabled:opacity-40 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
+              title="Dictate voice note with Whisper AI"
             >
-              <Mic className="w-4 h-4" />
+              {isTranscribing ? <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> : <Mic className="w-4 h-4" />}
             </button>
           )}
 
@@ -720,13 +682,13 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             }}
             placeholder={
               isTranscribing
-                ? "⚡ AI polishing voice transcript with Whisper Large v3..."
+                ? "⚡ Transcribing speech with Groq Whisper Large v3..."
                 : isRecording
-                ? "Listening live & recording audio..."
+                ? "Recording voice... tap red button when finished speaking"
                 : "Write a message or paste notes..."
             }
-            className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800 focus:border-zinc-700'} rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
-            disabled={isSending}
+            className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50 ring-1 ring-red-500/30' : isTranscribing ? 'border-indigo-500/50 ring-1 ring-indigo-500/30' : 'border-zinc-800 focus:border-zinc-700'} rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
+            disabled={isSending || isTranscribing}
           />
 
           {/* Send button with active scale effect */}

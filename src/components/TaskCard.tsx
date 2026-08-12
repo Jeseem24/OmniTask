@@ -28,18 +28,34 @@ interface TaskCardProps {
 export default function TaskCard({ task, onToggleComplete, onDelete, onUpdateTask }: TaskCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
-  const [editDeadline, setEditDeadline] = useState(
-    task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : ''
-  );
+  const safeGetIsoDate = (dVal: any) => {
+    if (!dVal) return '';
+    try {
+      const d = new Date(dVal);
+      return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const safeFormatDate = (dVal: any) => {
+    if (!dVal) return 'No Deadline';
+    try {
+      const d = new Date(dVal);
+      return isNaN(d.getTime()) ? 'No Deadline' : d.toLocaleDateString('en-GB');
+    } catch (e) {
+      return 'No Deadline';
+    }
+  };
+
+  const [editDeadline, setEditDeadline] = useState(safeGetIsoDate(task.deadline));
   const [editImportance, setEditImportance] = useState(task.importance || 3);
   const [isSaving, setIsSaving] = useState(false);
 
   const isCompleted = task.status === 'COMPLETED';
   const tier = getPriorityTier(task.priorityScore);
 
-  const formattedDeadline = task.deadline
-    ? new Date(task.deadline).toLocaleDateString('en-GB')
-    : 'No Deadline';
+  const formattedDeadline = safeFormatDate(task.deadline);
 
   const handleDelete = () => {
     // Confirmation prompt ONLY for Active (PENDING) tasks

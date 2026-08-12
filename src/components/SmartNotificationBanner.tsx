@@ -26,11 +26,13 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
 
     const dueToday = pending.filter((t) => {
       const d = new Date(t.deadline!);
+      if (isNaN(d.getTime())) return false;
       return d.toDateString() === now.toDateString();
     });
 
     const dueSoon = pending.filter((t) => {
       const d = new Date(t.deadline!);
+      if (isNaN(d.getTime())) return false;
       const hours = (d.getTime() - now.getTime()) / (1000 * 60 * 60);
       return hours > 0 && hours <= 48 && d.toDateString() !== now.toDateString();
     });

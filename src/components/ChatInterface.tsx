@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Paperclip, Image as ImageIcon, Loader2, Bot, User, Check, Trash2, Calendar, Clock, Plus, AlertCircle, FileText, Mic, MicOff, UploadCloud, X } from 'lucide-react';
+import { Sparkles, Send, Paperclip, Image as ImageIcon, Loader2, Bot, User, Check, Trash2, Calendar, Clock, Plus, AlertCircle, FileText, Mic, MicOff, UploadCloud, X, Camera, FileUp } from 'lucide-react';
 import { ExtractedCandidateTask } from '@/lib/aiExtractor';
 
 export interface ChatMessage {
@@ -33,15 +33,21 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   const [isSending, setIsSending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Voice recording state & Real-Time Word-by-Word Speech Recognition
+  // Add to Chat Sheet State & File Input Refs
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const photosInputRef = useRef<HTMLInputElement>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
+
+  // Voice recording state & Real-Time Speech Recognition
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const baseTextRef = useRef<string>('');
+  const finalTranscriptRef = useRef<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -63,49 +69,54 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Real-Time Word-by-Word Voice Dictation
+  // Real-Time Word-by-Word Voice Dictation (Instantaneous Streaming)
   const startRecording = async () => {
     if (typeof window === 'undefined') return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-    baseTextRef.current = inputText;
-
-    // 1. Web Speech API for instantaneous, word-by-word streaming text into the input box
-    if (SpeechRecognition) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-
-        recognition.onresult = (event: any) => {
-          let transcript = '';
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
-          }
-          if (transcript) {
-            setInputText(() => {
-              const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
-              return prefix + transcript;
-            });
-          }
-        };
-
-        recognition.onend = () => {
-          setIsRecording(false);
-        };
-
-        recognition.start();
-        recognitionRef.current = recognition;
-        setIsRecording(true);
-      } catch (e) {
-        console.error('Speech recognition start error:', e);
-      }
-    }
-
-    // 2. Backup Audio Recorder for Groq Whisper v3 precision accuracy
     try {
+      // 1. Request microphone access first
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      baseTextRef.current = inputText;
+      finalTranscriptRef.current = '';
+
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+
+          recognition.onresult = (event: any) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const transcriptChunk = event.results[i][0].transcript;
+              if (event.results[i].isFinal) {
+                finalTranscriptRef.current += transcriptChunk + ' ';
+              } else {
+                interim += transcriptChunk;
+              }
+            }
+            const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
+            const updated = prefix + finalTranscriptRef.current + interim;
+            setInputText(updated);
+          };
+
+          recognition.onend = () => {
+            setIsRecording(false);
+          };
+
+          recognition.start();
+          recognitionRef.current = recognition;
+          setIsRecording(true);
+        } catch (e) {
+          console.error('Speech recognition error:', e);
+        }
+      }
+
+      // 2. Backup Whisper audio recorder for precision accuracy
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
@@ -125,8 +136,9 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
             const data = await res.json();
             if (data.text) {
               setInputText((prev) => {
-                if (prev.includes(data.text.trim())) return prev;
-                return prev ? `${prev} ${data.text}` : data.text;
+                const trimmedWhisper = data.text.trim();
+                if (prev.includes(trimmedWhisper)) return prev;
+                return prev ? `${prev.trimEnd()} ${trimmedWhisper}` : trimmedWhisper;
               });
             }
           }
@@ -138,7 +150,8 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       mediaRecorderRef.current.start();
       setIsRecording(true);
     } catch (err) {
-      console.error('Microphone access error:', err);
+      console.error('Microphone access denied:', err);
+      alert('Microphone permission is required for real-time dictation.');
     }
   };
 
@@ -558,26 +571,52 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
         )}
 
         <div className="flex items-center gap-2">
+          {/* Hidden File Inputs */}
           <input
             type="file"
-            ref={fileInputRef}
-            multiple
-            accept="image/*,application/pdf,audio/*"
+            ref={cameraInputRef}
+            accept="image/*"
+            capture="environment"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
-                const newFiles = Array.from(e.target.files);
-                setAttachedFiles((prev) => [...prev, ...newFiles]);
+                setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
               }
             }}
             className="hidden"
           />
 
-          {/* Tactile + Button */}
+          <input
+            type="file"
+            ref={photosInputRef}
+            multiple
+            accept="image/*"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+              }
+            }}
+            className="hidden"
+          />
+
+          <input
+            type="file"
+            ref={filesInputRef}
+            multiple
+            accept="application/pdf,.doc,.docx,.txt,audio/*"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+              }
+            }}
+            className="hidden"
+          />
+
+          {/* Tactile + Button (Triggers Add to Chat Sheet) */}
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setIsAddModalOpen(true)}
             className="flex size-9 items-center justify-center text-zinc-400 hover:text-indigo-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all duration-150 active:scale-[0.94] flex-shrink-0"
-            title="Add photos, screenshots, or PDFs"
+            title="Add to chat"
           >
             <Plus className="w-4.5 h-4.5" />
           </button>
@@ -647,6 +686,82 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
           </button>
         </div>
       </form>
+
+      {/* Add to Chat Bottom Sheet Overlay (Matching Screenshot) */}
+      {isAddModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-0 sm:p-4"
+          onClick={() => setIsAddModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl space-y-6 animate-in slide-in-from-bottom duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drag Handle Bar */}
+            <div className="w-12 h-1 bg-zinc-700 rounded-full mx-auto" />
+
+            {/* Header */}
+            <div className="relative flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="absolute left-0 w-8 h-8 rounded-full bg-zinc-800 text-zinc-300 hover:bg-zinc-700 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <h3 className="text-base font-bold text-zinc-100">Add to chat</h3>
+            </div>
+
+            {/* 3 Rounded Action Cards */}
+            <div className="grid grid-cols-3 gap-3 pt-2">
+              {/* Camera Card */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  cameraInputRef.current?.click();
+                }}
+                className="flex flex-col items-center justify-center gap-3 p-4 sm:p-5 rounded-2xl bg-zinc-950 border border-zinc-800/80 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all group active:scale-95"
+              >
+                <div className="w-12 h-12 rounded-full bg-zinc-800/90 text-zinc-200 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Camera className="w-5 h-5 text-indigo-400" />
+                </div>
+                <span className="text-xs sm:text-sm font-medium text-zinc-200">Camera</span>
+              </button>
+
+              {/* Photos Card */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  photosInputRef.current?.click();
+                }}
+                className="flex flex-col items-center justify-center gap-3 p-4 sm:p-5 rounded-2xl bg-zinc-950 border border-zinc-800/80 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all group active:scale-95"
+              >
+                <div className="w-12 h-12 rounded-full bg-zinc-800/90 text-zinc-200 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <ImageIcon className="w-5 h-5 text-emerald-400" />
+                </div>
+                <span className="text-xs sm:text-sm font-medium text-zinc-200">Photos</span>
+              </button>
+
+              {/* Files Card */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  filesInputRef.current?.click();
+                }}
+                className="flex flex-col items-center justify-center gap-3 p-4 sm:p-5 rounded-2xl bg-zinc-950 border border-zinc-800/80 hover:border-indigo-500/50 hover:bg-zinc-850 transition-all group active:scale-95"
+              >
+                <div className="w-12 h-12 rounded-full bg-zinc-800/90 text-zinc-200 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <FileUp className="w-5 h-5 text-purple-400" />
+                </div>
+                <span className="text-xs sm:text-sm font-medium text-zinc-200">Files</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

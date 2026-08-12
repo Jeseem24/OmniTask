@@ -39,11 +39,13 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   const photosInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
 
-  // Voice recording state & Real-Time Speech Recognition
+  // Voice recording state & Real-Time Hybrid Dictation (WebSpeech Live Preview + Whisper v3 Precision)
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
   const baseTextRef = useRef<string>('');
   const finalTranscriptRef = useRef<string>('');
   const shouldKeepListeningRef = useRef<boolean>(false);
@@ -95,76 +97,29 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Real-Time Word-by-Word Voice Dictation (Instantaneous Live Streaming)
+  // Hybrid Real-Time Dictation: Web Speech Live Preview + Groq Whisper Large v3 Precision Finalizing
   const startRecording = async () => {
     if (typeof window === 'undefined') return;
 
-    baseTextRef.current = inputText;
-    finalTranscriptRef.current = '';
-    shouldKeepListeningRef.current = true;
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    // 1. Primary Live Engine: Web Speech API for instantaneous, word-by-word streaming text
-    if (SpeechRecognition) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => {
-          setIsRecording(true);
-        };
-
-        recognition.onresult = (event: any) => {
-          let final = '';
-          let interim = '';
-
-          for (let i = 0; i < event.results.length; i++) {
-            const transcriptChunk = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              final += transcriptChunk + ' ';
-            } else {
-              interim += transcriptChunk;
-            }
-          }
-
-          const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
-          const cleanLive = (final + interim).replace(/\s+/g, ' ');
-          setInputText(prefix + cleanLive);
-        };
-
-        recognition.onerror = (e: any) => {
-          console.error('Speech Recognition Error:', e);
-        };
-
-        // Continuous listening auto-restart on mobile silence
-        recognition.onend = () => {
-          if (shouldKeepListeningRef.current && recognitionRef.current) {
-            try {
-              recognition.start();
-            } catch (e) {
-              setIsRecording(false);
-            }
-          } else {
-            setIsRecording(false);
-          }
-        };
-
-        recognition.start();
-        recognitionRef.current = recognition;
-        setIsRecording(true);
-        return;
-      } catch (e) {
-        console.error('Speech recognition start error:', e);
-      }
-    }
-
-    // 2. Backup Engine (for browsers without Web Speech API): MediaRecorder + Groq Whisper v3
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      // 1. Capture pristine audio stream with noise suppression & gain control
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      streamRef.current = stream;
+
+      baseTextRef.current = inputText;
+      finalTranscriptRef.current = '';
+      shouldKeepListeningRef.current = true;
+
+      // 2. High-Fidelity MediaRecorder for Groq Whisper v3 Audio Capture
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm';
+
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -172,29 +127,79 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach((track) => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
 
-        try {
-          const formData = new FormData();
-          formData.append('file', audioBlob, 'recording.webm');
-          const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.text) {
-              setInputText((prev) => {
-                const trimmedWhisper = data.text.trim();
-                if (prev.includes(trimmedWhisper)) return prev;
-                return prev ? `${prev.trimEnd()} ${trimmedWhisper}` : trimmedWhisper;
-              });
+        // Send Pristine Audio to Groq Whisper Large v3 + Llama 3.3 70B Formatting Pipeline
+        if (audioBlob.size > 0) {
+          setIsTranscribing(true);
+          try {
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'recording.webm');
+            const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text && data.text.trim()) {
+                const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
+                setInputText(prefix + data.text.trim());
+              }
             }
+          } catch (err) {
+            console.error('Whisper Large v3 transcription error:', err);
+          } finally {
+            setIsTranscribing(false);
           }
-        } catch (err) {
-          console.error('Whisper transcription error:', err);
         }
       };
 
-      mediaRecorderRef.current.start();
+      mediaRecorderRef.current.start(200);
+
+      // 3. Web Speech API for Instantaneous Live Streaming Preview
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+
+          recognition.onresult = (event: any) => {
+            let final = '';
+            let interim = '';
+            for (let i = 0; i < event.results.length; i++) {
+              const transcriptChunk = event.results[i][0].transcript;
+              if (event.results[i].isFinal) {
+                final += transcriptChunk + ' ';
+              } else {
+                interim += transcriptChunk;
+              }
+            }
+            const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
+            const cleanLive = (final + interim).replace(/\s+/g, ' ');
+            setInputText(prefix + cleanLive);
+          };
+
+          recognition.onerror = (e: any) => {
+            console.error('Web Speech error:', e);
+          };
+
+          recognition.onend = () => {
+            if (shouldKeepListeningRef.current && recognitionRef.current) {
+              try { recognition.start(); } catch (e) {}
+            }
+          };
+
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (e) {
+          console.error('Speech recognition live preview note:', e);
+        }
+      }
+
       setIsRecording(true);
     } catch (err) {
       console.error('Microphone access denied:', err);
@@ -202,33 +207,16 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   };
 
-  const stopRecording = async () => {
+  const stopRecording = () => {
     shouldKeepListeningRef.current = false;
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (e) {}
       recognitionRef.current = null;
     }
-    if (mediaRecorderRef.current && isRecording) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
     setIsRecording(false);
-
-    // Auto-polish dictated text using AI for perfect grammar, spelling & punctuation
-    setInputText((current) => {
-      if (current.trim()) {
-        fetch('/api/transcribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: current }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.text) setInputText(data.text);
-          })
-          .catch((e) => console.error('Text polishing error:', e));
-      }
-      return current;
-    });
   };
 
   // Drag and Drop Handlers
@@ -730,7 +718,13 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
                 handleSendMessage();
               }
             }}
-            placeholder={isRecording ? "Listening & transcribing word by word into text..." : "Write a message or paste notes..."}
+            placeholder={
+              isTranscribing
+                ? "⚡ AI polishing voice transcript with Whisper Large v3..."
+                : isRecording
+                ? "Listening live & recording audio..."
+                : "Write a message or paste notes..."
+            }
             className={`flex-1 bg-zinc-900 border ${isRecording ? 'border-red-500/50 ring-1 ring-red-500/30' : 'border-zinc-800 focus:border-zinc-700'} rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all resize-none max-h-32 leading-relaxed`}
             disabled={isSending}
           />

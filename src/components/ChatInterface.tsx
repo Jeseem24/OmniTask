@@ -95,64 +95,72 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     }
   }, []);
 
-  // Real-Time Word-by-Word Voice Dictation (Instantaneous Streaming)
+  // Real-Time Word-by-Word Voice Dictation (Instantaneous Live Streaming)
   const startRecording = async () => {
     if (typeof window === 'undefined') return;
 
-    try {
-      // 1. Request microphone access first
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    baseTextRef.current = inputText;
+    finalTranscriptRef.current = '';
+    shouldKeepListeningRef.current = true;
 
-      baseTextRef.current = inputText;
-      finalTranscriptRef.current = '';
-      shouldKeepListeningRef.current = true;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // 1. Primary Live Engine: Web Speech API for instantaneous, word-by-word streaming text
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
 
-      if (SpeechRecognition) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
+        recognition.onstart = () => {
+          setIsRecording(true);
+        };
 
-          recognition.onresult = (event: any) => {
-            let interim = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              const transcriptChunk = event.results[i][0].transcript;
-              if (event.results[i].isFinal) {
-                finalTranscriptRef.current += transcriptChunk + ' ';
-              } else {
-                interim += transcriptChunk;
-              }
-            }
-            const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
-            const updated = prefix + finalTranscriptRef.current + interim;
-            setInputText(updated);
-          };
-
-          // Continuous listening auto-restart on mobile silence
-          recognition.onend = () => {
-            if (shouldKeepListeningRef.current && recognitionRef.current) {
-              try {
-                recognition.start();
-              } catch (e) {
-                console.log('Speech restart note:', e);
-              }
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcriptChunk = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscriptRef.current += transcriptChunk + ' ';
             } else {
+              interim += transcriptChunk;
+            }
+          }
+          const prefix = baseTextRef.current ? baseTextRef.current.trimEnd() + ' ' : '';
+          const updated = prefix + finalTranscriptRef.current + interim;
+          setInputText(updated);
+        };
+
+        recognition.onerror = (e: any) => {
+          console.error('Speech Recognition Error:', e);
+        };
+
+        // Continuous listening auto-restart on mobile silence
+        recognition.onend = () => {
+          if (shouldKeepListeningRef.current && recognitionRef.current) {
+            try {
+              recognition.start();
+            } catch (e) {
               setIsRecording(false);
             }
-          };
+          } else {
+            setIsRecording(false);
+          }
+        };
 
-          recognition.start();
-          recognitionRef.current = recognition;
-          setIsRecording(true);
-        } catch (e) {
-          console.error('Speech recognition error:', e);
-        }
+        recognition.start();
+        recognitionRef.current = recognition;
+        setIsRecording(true);
+        return;
+      } catch (e) {
+        console.error('Speech recognition start error:', e);
       }
+    }
 
-      // 2. Backup Whisper audio recorder for precision accuracy
+    // 2. Backup Engine (for browsers without Web Speech API): MediaRecorder + Groq Whisper v3
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
@@ -187,7 +195,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
       setIsRecording(true);
     } catch (err) {
       console.error('Microphone access denied:', err);
-      alert('Microphone permission is required for real-time dictation.');
+      alert('Microphone permission is required for voice dictation.');
     }
   };
 

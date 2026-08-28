@@ -175,7 +175,7 @@ RESPONSE JSON SCHEMA:
   "extractedTasks": [
     {
       "title": "Clean concise task title",
-      "description": "Optional notes or details",
+      "description": "Helpful 1-sentence action summary explaining the task context and execution goal (never leave empty).",
       "taskType": "WORK" | "PROJECT" | "FINANCE" | "HEALTH" | "ERRAND" | "ASSIGNMENT" | "PERSONAL",
       "deadlineISO": "YYYY-MM-DD or null",
       "importance": 1 to 5

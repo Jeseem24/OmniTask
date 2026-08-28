@@ -437,14 +437,16 @@ export default function Home() {
       </main>
 
       {/* Deep Task Detail Modal */}
-      <TaskDetailModal
-        task={selectedTask}
-        isOpen={!!selectedTask}
-        onClose={() => setSelectedTask(null)}
-        onUpdateTask={handleUpdateTask}
-        onToggleComplete={handleToggleComplete}
-        onDelete={handleDeleteTask}
-      />
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          isOpen={true}
+          onClose={() => setSelectedTask(null)}
+          onUpdateTask={handleUpdateTask}
+          onToggleComplete={handleToggleComplete}
+          onDelete={handleDeleteTask}
+        />
+      )}
     </div>
   );
 }

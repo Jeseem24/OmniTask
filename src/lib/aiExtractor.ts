@@ -65,7 +65,8 @@ RULES:
 3. Assign importance: 1=Low, 3=Normal, 4=High, 5=Critical/Urgent.
 4. Always return subtasks as [] unless explicit numbered sub-steps are listed.
 5. CRITICAL: If the user input is a greeting, small talk, casual question (e.g. "how are you", "what's up", "who are you"), cancellation keyword ("cancel", "stop", "no"), or does NOT describe an actionable task or duty, return an empty array [] without generating tasks.
-6. Return a valid JSON array of objects inside \`\`\`json ... \`\`\`.
+6. Always provide a helpful 1-sentence action summary in 'description' explaining the task goal and outcome.
+7. Return a valid JSON array of objects inside \`\`\`json ... \`\`\`.
 
 EXAMPLE OUTPUT:
 [

@@ -415,10 +415,10 @@ async function compressImageIfNeeded(file: File): Promise<File> {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onPaste={handlePaste}
-      className="doppelrand-shell relative flex flex-col h-[calc(100vh-6.75rem)] overflow-hidden"
+      className="doppelrand-shell relative flex flex-col h-[calc(100dvh-4.75rem)] lg:h-[calc(100vh-6.5rem)] overflow-hidden rounded-2xl sm:rounded-3xl p-0.5 sm:p-1.5"
     >
       {/* Inner Core Container */}
-      <div className="doppelrand-core relative flex flex-col flex-1 overflow-hidden">
+      <div className="doppelrand-core relative flex flex-col flex-1 overflow-hidden rounded-[calc(1rem-2px)] sm:rounded-[calc(1.5rem-2px)]">
         {/* Drag & Drop Overlay */}
         {isDragging && (
           <div className="absolute inset-0 z-50 bg-indigo-950/90 border-2 border-dashed border-indigo-400 rounded-3xl flex flex-col items-center justify-center text-indigo-200 animate-fade-in">
@@ -429,12 +429,12 @@ async function compressImageIfNeeded(file: File): Promise<File> {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-black/20">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
-              <Bot className="w-4 h-4" />
+        <div className="flex items-center justify-between px-3.5 sm:px-4 py-2.5 sm:py-3 border-b border-white/[0.06] bg-black/20">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+              <Bot className="w-3.5 h-3.5" />
             </div>
-            <h2 className="font-semibold text-sm text-white">AI Assistant</h2>
+            <h2 className="font-semibold text-xs sm:text-sm text-white">AI Assistant</h2>
           </div>
         </div>
 
@@ -632,7 +632,7 @@ async function compressImageIfNeeded(file: File): Promise<File> {
         </div>
 
         {/* Input Bar */}
-        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="p-3 sm:p-4 border-t border-white/[0.06] bg-black/30 space-y-2.5">
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="p-2.5 sm:p-4 border-t border-white/[0.06] bg-black/30 space-y-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:pb-3.5">
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 max-h-20 overflow-y-auto">
               {attachedFiles.map((f, idx) => (

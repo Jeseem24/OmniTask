@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Check, Calendar, Plus, FileText, Mic, X, Camera, FileUp, UploadCloud, Image as ImageIcon, Paperclip, AlertCircle, Sparkles } from 'lucide-react';
+import { Send, Loader2, Bot, User, Check, Calendar, Plus, FileText, Mic, X, Camera, FileUp, UploadCloud, Image as ImageIcon, Paperclip, AlertCircle, Sparkles, Trash2 } from 'lucide-react';
 import { ExtractedCandidateTask } from '@/lib/aiExtractor';
 import { toast } from '@/lib/toast';
 
@@ -437,6 +437,29 @@ async function compressImageIfNeeded(file: File): Promise<File> {
             </div>
             <h2 className="font-semibold text-xs sm:text-sm text-white">AI Assistant</h2>
           </div>
+          {messages.length > 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to clear the conversation history?')) {
+                  setMessages([
+                    {
+                      id: 'welcome-1',
+                      role: 'assistant',
+                      content: `👋 **Chat Cleared.** What would you like to work on next?`,
+                      timestamp: 'Just now',
+                    },
+                  ]);
+                  toast.info('Chat history cleared');
+                }
+              }}
+              className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all text-xs flex items-center gap-1 active:scale-95 border border-transparent hover:border-red-500/20"
+              title="Clear conversation"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-medium hidden sm:inline">Clear Chat</span>
+            </button>
+          )}
         </div>
 
         {/* Messages */}

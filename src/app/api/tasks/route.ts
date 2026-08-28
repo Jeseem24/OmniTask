@@ -101,3 +101,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    await ensureDbInitialized();
+    const { searchParams } = new URL(req.url);
+    const scope = searchParams.get('scope') || 'all';
+
+    if (scope === 'completed') {
+      await prisma.task.deleteMany({
+        where: { status: 'COMPLETED' },
+      });
+    } else {
+      await prisma.task.deleteMany({});
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('Error clearing tasks:', error);
+    return NextResponse.json({ error: error.message || 'Failed to clear tasks' }, { status: 500 });
+  }
+}

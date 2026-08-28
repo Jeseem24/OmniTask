@@ -10,10 +10,14 @@ export async function POST(req: Request) {
     let userText = '';
     let attachments: { buffer: Buffer; mimeType: string; name: string }[] = [];
     let history: { role: 'user' | 'assistant'; content: string }[] = [];
+    let userTimezone = '';
+    let userDateISO = '';
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await req.formData();
       userText = (formData.get('message') as string) || '';
+      userTimezone = (formData.get('userTimezone') as string) || '';
+      userDateISO = (formData.get('userDateISO') as string) || '';
       const historyJson = formData.get('history') as string | null;
       if (historyJson) {
         try { history = JSON.parse(historyJson); } catch (e) {}
@@ -33,6 +37,8 @@ export async function POST(req: Request) {
     } else {
       const body = await req.json();
       userText = body.message || '';
+      userTimezone = body.userTimezone || '';
+      userDateISO = body.userDateISO || '';
       if (Array.isArray(body.history)) {
         history = body.history;
       }
@@ -48,7 +54,9 @@ export async function POST(req: Request) {
       attachments.length > 0 ? attachments[0].mimeType : null,
       attachments.length > 0 ? attachments[0].name : null,
       history,
-      attachments
+      attachments,
+      userTimezone,
+      userDateISO
     );
 
     return NextResponse.json(replyPayload);

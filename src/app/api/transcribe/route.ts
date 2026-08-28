@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       if (!rawText.trim()) return NextResponse.json({ text: '' });
 
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages: [
           {
             role: 'system',
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     if (rawText && rawText.trim()) {
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages: [
           {
             role: 'system',

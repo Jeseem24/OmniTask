@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Bell, AlertTriangle, Clock, X, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Clock, X, Bell } from 'lucide-react';
 import { TaskItem } from './TaskCard';
 
 interface SmartNotificationBannerProps {
@@ -20,7 +20,6 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
   useEffect(() => {
     if (dismissed) return;
 
-    // Check for tasks due today or within 24-48 hours
     const pending = tasks.filter((t) => t.status === 'PENDING' && t.deadline);
     const now = new Date();
 
@@ -30,6 +29,12 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
       return d.toDateString() === now.toDateString();
     });
 
+    const overdue = pending.filter((t) => {
+      const d = new Date(t.deadline!);
+      if (isNaN(d.getTime())) return false;
+      return d.getTime() < now.getTime() && d.toDateString() !== now.toDateString();
+    });
+
     const dueSoon = pending.filter((t) => {
       const d = new Date(t.deadline!);
       if (isNaN(d.getTime())) return false;
@@ -37,23 +42,26 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
       return hours > 0 && hours <= 48 && d.toDateString() !== now.toDateString();
     });
 
-    if (dueToday.length > 0) {
+    if (overdue.length > 0) {
       setNotification({
-        id: 'due-today',
-        title: '🚨 Deadline Alert — Due Today!',
-        message: `You have ${dueToday.length} task${dueToday.length > 1 ? 's' : ''} due today: "${dueToday[0].title}"`,
+        id: 'overdue',
+        title: 'Overdue',
+        message: `${overdue.length} task${overdue.length > 1 ? 's are' : ' is'} past deadline — "${overdue[0].title}"`,
         type: 'urgent',
       });
-      // Trigger Web Browser Push Notification if permission granted
-      triggerBrowserNotification(
-        '🚨 Deadline Alert — Due Today!',
-        `Task due today: "${dueToday[0].title}"`
-      );
+    } else if (dueToday.length > 0) {
+      setNotification({
+        id: 'due-today',
+        title: 'Due Today',
+        message: `${dueToday.length} task${dueToday.length > 1 ? 's' : ''} due today — "${dueToday[0].title}"`,
+        type: 'urgent',
+      });
+      triggerBrowserNotification('Due Today', `"${dueToday[0].title}" is due today`);
     } else if (dueSoon.length > 0) {
       setNotification({
         id: 'due-soon',
-        title: '⏰ Intelligent Reminder — Due Soon',
-        message: `Upcoming: "${dueSoon[0].title}" is due in the next 48 hours.`,
+        title: 'Coming Up',
+        message: `"${dueSoon[0].title}" is due within 48 hours`,
         type: 'warning',
       });
     } else {
@@ -61,71 +69,58 @@ export default function SmartNotificationBanner({ tasks }: SmartNotificationBann
     }
   }, [tasks, dismissed]);
 
-  const enablePushNotifications = async () => {
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'Notification' in window) {
-      try {
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-          const reg = await navigator.serviceWorker.register('/sw.js');
-          console.log('Background Push Service Worker Registered:', reg);
-          alert('✅ Background Mobile Push Notifications Enabled! You will receive alerts even when the app is closed.');
-        }
-      } catch (err) {
-        console.error('Service worker registration failed:', err);
-      }
-    }
-  };
-
   const triggerBrowserNotification = (title: string, body: string) => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready
-            .then((reg) => {
-              reg.showNotification(title, { body, icon: '/globe.svg' });
-            })
-            .catch((e) => {
-              console.log('SW notification fallback:', e);
-            });
+            .then((reg) => reg.showNotification(title, { body, icon: '/globe.svg' }))
+            .catch(() => {});
         }
-      } catch (err) {
-        console.error('Mobile notification suppressed:', err);
-      }
+      } catch {}
+    }
+  };
+
+  const enablePushNotifications = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          alert('Push notifications enabled!');
+        }
+      } catch {}
     }
   };
 
   if (!notification || dismissed) return null;
 
   return (
-    <div
-      className={`w-full border-b px-4 py-2.5 transition-all duration-300 animate-in slide-in-from-top ${
-        notification.type === 'urgent'
-          ? 'bg-red-950/90 border-red-500/40 text-red-200'
-          : 'bg-amber-950/90 border-amber-500/40 text-amber-200'
-      }`}
-    >
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs sm:text-sm font-medium">
+    <div className={`w-full border-b animate-slide-down ${
+      notification.type === 'urgent'
+        ? 'bg-red-950/60 border-red-500/20 text-red-200'
+        : 'bg-amber-950/40 border-amber-500/20 text-amber-200'
+    }`}>
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-2.5 text-xs sm:text-sm font-medium">
         <div className="flex items-center gap-2.5 truncate">
           {notification.type === 'urgent' ? (
-            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 animate-bounce" />
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
           ) : (
-            <Clock className="w-4 h-4 text-amber-400 flex-shrink-0 animate-pulse" />
+            <Clock className="w-4 h-4 text-amber-400 flex-shrink-0" />
           )}
           <span className="font-bold">{notification.title}:</span>
-          <span className="truncate opacity-90">{notification.message}</span>
+          <span className="truncate opacity-80">{notification.message}</span>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={enablePushNotifications}
-            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-bold text-white transition-all"
+            className="hidden sm:flex px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-[11px] font-bold text-white transition-all items-center gap-1.5"
           >
-            🔔 Enable Push
+            <Bell className="w-3 h-3" /> Enable Push
           </button>
           <button
             onClick={() => setDismissed(true)}
-            className="p-1 hover:bg-white/10 rounded-lg text-white/70 hover:text-white transition-colors"
-            title="Dismiss notification"
+            className="p-1 hover:bg-white/[0.1] rounded-lg text-white/60 hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />
           </button>

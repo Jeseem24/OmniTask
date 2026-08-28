@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { Groq } from 'groq-sdk';
+import { getLiveGroqModel, getLiveGeminiModel, invalidateModelCache } from './modelManager';
 
 export interface ExtractedCandidateTask {
   title: string;
@@ -24,6 +25,8 @@ export interface ExtractedCandidateTask {
     | 'EVENT'
     | 'MAINTENANCE'
     | 'PERSONAL'
+    | 'SOCIAL'
+    | 'LEARNING'
     | 'OTHER';
   deadlineISO?: string | null;
   isDeadlineAmbiguous: boolean;
@@ -39,192 +42,264 @@ export interface ExtractedCandidateTask {
   userModified?: boolean;
 }
 
-// Dynamically generate calendar context prompt on EVERY request to ensure date accuracy
-const getCalendarContextPrompt = () => {
-  const now = new Date();
+export function getCalendarContextPrompt(userTimezone?: string, userDateISO?: string) {
+  let now = new Date();
+  if (userDateISO) {
+    const parsedUserDate = new Date(userDateISO);
+    if (!isNaN(parsedUserDate.getTime())) now = parsedUserDate;
+  }
+
+  const tz = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const todayName = dayNames[now.getDay()];
   const todayISO = now.toISOString().split('T')[0];
 
   const datesList = [];
-  for (let i = 0; i <= 7; i++) {
+  for (let i = 0; i <= 14; i++) {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
     const dayName = dayNames[d.getDay()];
     const iso = d.toISOString().split('T')[0];
-    datesList.push(`- ${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayName}: ${dayName}, ${iso}`);
+    datesList.push(`${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayName}: ${iso}`);
   }
 
-  return `
-You are an intelligent personal task extraction engine.
-Analyze the user's input (text, WhatsApp message, work email, invoice/bill screenshot, PDF, or note).
+  return `You are OmniTask's precision task extraction engine. Extract actionable tasks from user input into structured JSON.
 
-CALENDAR REFERENCE FOR RELATIVE DATES:
-- Current Reference Date: ${todayISO} (${todayName})
-Upcoming days calendar:
+USER TIMEZONE: ${tz}
+TODAY: ${todayISO} (${todayName})
+DATE REFERENCE (Next 14 Days):
 ${datesList.join('\n')}
 
+CLASSIFICATION TYPES:
+- WORK: meetings, office reports, client tasks, emails
+- PROJECT: development, building, creative work
+- FINANCE: bills, fees, taxes, payments
+- HEALTH: doctor appointments, workouts, medications
+- ERRAND: shopping, groceries, pickups
+- ASSIGNMENT: homework, coursework, study tasks
+- PERSONAL: personal goals, routines
+- SOCIAL: calls, family, friends
+- OTHER: general tasks
+
 RULES:
-1. ATOMIC TASK SPLITTING (CRITICAL):
-   - ALWAYS split items connected by '+', '&', 'and', commas (','), or list breaks into SEPARATE INDIVIDUAL TASKS!
-   - DO NOT create combined titles like "Communication + Coding + Aptitude". Instead, extract 3 separate tasks: "Placement Cell - Communication Task", "Placement Cell - Coding Task", "Placement Cell - Aptitude Task".
-   - DO NOT combine "Assignment 1 & 2 + Lab experiment". Extract 3 separate tasks: "Assignment 1", "Assignment 2", and "Lab experiment / write-up".
+1. Extract clean, actionable task titles (e.g. "Email supervisor project selection", "Buy groceries").
+2. Resolve relative dates like "tomorrow", "this Friday", "next Tuesday" to ISO YYYY-MM-DD using the DATE REFERENCE table. If no date is given, set deadlineISO to null and isDeadlineAmbiguous to true.
+3. Assign importance: 1=Low, 3=Normal, 4=High, 5=Critical/Urgent.
+4. Estimate effort in minutes (e.g. 15, 30, 45, 60).
+5. Always return subtasks as [] unless explicit numbered sub-steps are listed.
+6. Return a valid JSON array of objects.
 
-2. HEADER & SECTION INHERITANCE:
-   - Inherit date sections (e.g. "🔴 Due Today" => set deadlineISO to TODAY; "🟡 Due Monday" => set deadlineISO to coming Monday).
-   - Inherit teacher / section headings (e.g., "Placement Cell", "Monisha Ma’am", "Security Lab", "Agnes Ma’am") into each task's title or subjectName!
-
-3. DO NOT create subtasks. Always set "subtasks": [].
-4. For relative dates like "this Friday", "tomorrow", "this Sunday", use the CALENDAR REFERENCE table above to pick the EXACT ISO date (YYYY-MM-DD).
-5. ALWAYS provide a clear, helpful "description" string summarizing key context or notes. Never leave description empty.
-
-Output MUST be a strictly valid JSON array matching this TypeScript structure:
+EXAMPLE OUTPUT:
 [
   {
-    "title": "string (clear, concise title)",
-    "description": "string (detailed summary of context/instructions)",
-    "subjectName": "string or null",
-    "taskType": "WORK|PROJECT|FINANCE|HEALTH|ERRAND|ASSIGNMENT|PERSONAL",
-    "deadlineISO": "YYYY-MM-DD or ISO-8601 string or null",
-    "isDeadlineAmbiguous": boolean,
-    "deadlineReasoning": "string",
-    "estimatedEffortMins": 30,
-    "importance": 3,
-    "subtasks": [],
-    "confidenceScore": 1.0
+    "title": "Email supervisor project selection",
+    "description": "Send selection email for mini and final year projects",
+    "taskType": "WORK",
+    "deadlineISO": "${todayISO}",
+    "isDeadlineAmbiguous": false,
+    "estimatedEffortMins": 20,
+    "importance": 4,
+    "confidenceScore": 0.95,
+    "subtasks": []
   }
 ]
-Return ONLY the raw JSON array wrapped inside \`\`\`json ... \`\`\`.
-`;
-};
 
-export async function extractTasksFromText(rawText: string): Promise<ExtractedCandidateTask[]> {
+Return ONLY the JSON array inside \`\`\`json ... \`\`\`.`;
+}
+
+export async function extractTasksFromText(
+  rawText: string,
+  userTimezone?: string,
+  userDateISO?: string
+): Promise<ExtractedCandidateTask[]> {
   const groqApiKey = process.env.GROQ_API_KEY;
   const geminiApiKey = process.env.GEMINI_API_KEY;
-  const systemPrompt = getCalendarContextPrompt();
+  const systemPrompt = getCalendarContextPrompt(userTimezone, userDateISO);
 
-  // 1. Try Groq API first for ultra-fast text processing if available
+  // 1. Dynamic Groq Live Extraction with Rate-Limit (429) & Model (404) auto-handling
   if (groqApiKey) {
     try {
+      const liveModel = await getLiveGroqModel(groqApiKey);
       const groq = new Groq({ apiKey: groqApiKey });
       const chatCompletion = await groq.chat.completions.create({
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `USER INPUT:\n${rawText}` },
+          { role: 'user', content: `Extract tasks from:\n${rawText}` },
         ],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.2,
+        model: liveModel,
+        temperature: 0.1,
       });
-
       const textOutput = chatCompletion.choices[0]?.message?.content || '';
-      return parseJsonResponse(textOutput);
-    } catch (error) {
-      console.error('Error calling Groq API for text extraction, falling back to Gemini:', error);
+      const parsed = parseJsonResponse(textOutput);
+      if (parsed.length > 0) return parsed;
+    } catch (error: any) {
+      if (error?.status === 404 || error?.code === 'model_not_found') {
+        invalidateModelCache('groq');
+      }
+      console.warn('Groq extraction error, falling back to Gemini:', error);
     }
   }
 
-  // 2. Try Gemini API if available
+  // 2. Dynamic Gemini Live Extraction with Rate-Limit & Model auto-handling
   if (geminiApiKey) {
     try {
+      const liveModel = await getLiveGeminiModel(geminiApiKey);
       const ai = new GoogleGenAI({ apiKey: geminiApiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: liveModel,
         contents: [
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\nUSER INPUT:\n${rawText}` }] },
+          { role: 'user', parts: [{ text: `${systemPrompt}\n\nExtract tasks from:\n${rawText}` }] },
         ],
       });
-
-      const textOutput = response.text || '';
-      return parseJsonResponse(textOutput);
-    } catch (error) {
-      console.error('Error calling Gemini API for text extraction:', error);
+      const parsed = parseJsonResponse(response.text || '');
+      if (parsed.length > 0) return parsed;
+    } catch (error: any) {
+      if (error?.status === 404) {
+        invalidateModelCache('gemini');
+      }
+      console.warn('Gemini extraction error, falling back to local engine:', error);
     }
   }
 
-  console.warn('Neither GROQ_API_KEY nor GEMINI_API_KEY is set. Returning fallback extraction.');
+  // 3. Smart Local Offline Heuristic
   return generateFallbackExtraction(rawText);
 }
 
 export async function extractTasksFromImage(
   base64Image: string,
-  mimeType: string = 'image/png'
+  mimeType: string = 'image/png',
+  userTimezone?: string,
+  userDateISO?: string
 ): Promise<ExtractedCandidateTask[]> {
   const apiKey = process.env.GEMINI_API_KEY;
-  const systemPrompt = getCalendarContextPrompt();
+  const systemPrompt = getCalendarContextPrompt(userTimezone, userDateISO);
 
   if (!apiKey) {
-    console.warn('GEMINI_API_KEY is not set. Returning basic fallback extraction.');
-    return generateFallbackExtraction('Screenshot/Image Uploaded');
+    return generateFallbackExtraction('Image upload');
   }
 
   try {
+    const liveModel = await getLiveGeminiModel(apiKey);
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: liveModel,
       contents: [
         {
           role: 'user',
           parts: [
             { text: systemPrompt },
-            {
-              inlineData: {
-                data: base64Image,
-                mimeType,
-              },
-            },
+            { inlineData: { data: base64Image, mimeType } },
           ],
         },
       ],
     });
-
-    const textOutput = response.text || '';
-    return parseJsonResponse(textOutput);
-  } catch (error) {
-    console.error('Error calling Gemini API for image extraction:', error);
-    return generateFallbackExtraction('Screenshot OCR Task');
+    const parsed = parseJsonResponse(response.text || '');
+    if (parsed.length > 0) return parsed;
+  } catch (error: any) {
+    if (error?.status === 404) {
+      invalidateModelCache('gemini');
+    }
+    console.warn('Gemini image extraction error:', error);
   }
+
+  return generateFallbackExtraction('Image task');
 }
 
+/**
+ * Robust JSON parser that handles markdown code blocks, truncated brackets,
+ * and embedded single/multiple task objects.
+ */
 function parseJsonResponse(rawOutput: string): ExtractedCandidateTask[] {
   try {
     let cleanJson = rawOutput.trim();
+    
     if (cleanJson.includes('```json')) {
       cleanJson = cleanJson.split('```json')[1].split('```')[0].trim();
     } else if (cleanJson.includes('```')) {
       cleanJson = cleanJson.split('```')[1].split('```')[0].trim();
     }
 
-    const parsed = JSON.parse(cleanJson);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    } else if (parsed.tasks && Array.isArray(parsed.tasks)) {
-      return parsed.tasks;
+    if (!cleanJson.startsWith('[')) {
+      const arrayStart = cleanJson.indexOf('[');
+      const arrayEnd = cleanJson.lastIndexOf(']');
+      if (arrayStart !== -1 && arrayEnd !== -1 && arrayEnd > arrayStart) {
+        cleanJson = cleanJson.substring(arrayStart, arrayEnd + 1);
+      }
     }
-    return [parsed];
+
+    // Auto-repair missing closing bracket if truncated
+    if (cleanJson.startsWith('[') && !cleanJson.endsWith(']')) {
+      cleanJson += ']';
+    }
+
+    const parsed = JSON.parse(cleanJson);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed.tasks && Array.isArray(parsed.tasks)) return parsed.tasks;
+    if (parsed.title) return [parsed];
+    return [];
   } catch (err) {
-    console.error('Failed to parse JSON response from Gemini:', err, rawOutput);
-    return generateFallbackExtraction('Extracted Work Item');
+    try {
+      const match = rawOutput.match(/\[[\s\S]*\]/);
+      if (match) return JSON.parse(match[0]);
+    } catch {}
+    return [];
   }
 }
 
-function generateFallbackExtraction(promptSummary: string): ExtractedCandidateTask[] {
+function generateFallbackExtraction(rawText: string): ExtractedCandidateTask[] {
   const now = new Date();
-  const nextSunday = new Date(now);
-  nextSunday.setDate(now.getDate() + ((7 - now.getDay()) % 7 || 7));
-  nextSunday.setHours(23, 59, 0, 0);
+  const lower = rawText.toLowerCase();
+  let deadlineDate: Date | null = null;
+  let cleanTitle = rawText.trim();
+
+  // Relative date parsing
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  if (lower.includes('tomorrow')) {
+    deadlineDate = new Date(now);
+    deadlineDate.setDate(now.getDate() + 1);
+    cleanTitle = cleanTitle.replace(/\b(by|before|on)?\s*tomorrow\b/gi, '').trim();
+  } else if (lower.includes('today') || lower.includes('tonight')) {
+    deadlineDate = new Date(now);
+    cleanTitle = cleanTitle.replace(/\b(by|before|on)?\s*(today|tonight)\b/gi, '').trim();
+  } else if (lower.match(/\bin\s+(\d+)\s+days?\b/i)) {
+    const days = parseInt(lower.match(/\bin\s+(\d+)\s+days?\b/i)![1], 10);
+    deadlineDate = new Date(now);
+    deadlineDate.setDate(now.getDate() + days);
+    cleanTitle = cleanTitle.replace(/\bin\s+\d+\s+days?\b/gi, '').trim();
+  } else {
+    for (let targetDay = 0; targetDay < 7; targetDay++) {
+      if (lower.includes(dayNames[targetDay])) {
+        const curDay = now.getDay();
+        let diff = (targetDay - curDay + 7) % 7;
+        if (diff === 0) diff = 7;
+        deadlineDate = new Date(now);
+        deadlineDate.setDate(now.getDate() + diff);
+        cleanTitle = cleanTitle.replace(new RegExp(`\\b(by|before|on)?\\s*${dayNames[targetDay]}\\b`, 'gi'), '').trim();
+        break;
+      }
+    }
+  }
+
+  if (!deadlineDate) {
+    deadlineDate = new Date(now);
+    deadlineDate.setDate(now.getDate() + ((7 - now.getDay()) % 7 || 7));
+  }
+
+  cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
+  if (cleanTitle.length > 80) cleanTitle = cleanTitle.slice(0, 80);
 
   return [
     {
-      title: promptSummary.slice(0, 60) || 'New Academic Task',
-      description: promptSummary.length > 60 ? promptSummary : 'Extracted task details',
-      taskType: 'ASSIGNMENT',
-      deadlineISO: nextSunday.toISOString(),
-      isDeadlineAmbiguous: true,
-      deadlineReasoning: 'Default fallback deadline set to upcoming Sunday',
-      estimatedEffortMins: 45,
+      title: cleanTitle || 'New Task',
+      description: `Extracted from "${rawText.slice(0, 100)}"`,
+      taskType: 'PERSONAL',
+      deadlineISO: deadlineDate.toISOString(),
+      isDeadlineAmbiguous: false,
+      deadlineReasoning: 'Parsed from user input',
+      estimatedEffortMins: 30,
       importance: 3,
-      confidenceScore: 0.7,
-      subtasks: [], // Explicitly no subtasks
+      confidenceScore: 0.9,
+      subtasks: [],
     },
   ];
 }

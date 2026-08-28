@@ -74,7 +74,7 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `Hey! I'm your AI task assistant. Here's what I can do:\n\n• **Add tasks** — just tell me what you need to do\n• **Attach files** — drop screenshots, PDFs, or voice notes\n• **Get advice** — ask "What should I do now?"\n• **Manage tasks** — mark complete, reschedule, or reprioritize\n\nWhat's on your plate today?`,
+      content: `👋 **Welcome to OmniTask AI!** I'm your autonomous executive task strategist.\n\nHere is how I can help:\n• **Extract Actionable Tasks** — from quick thoughts, voice notes, photos, or PDFs\n• **Priority Coaching** — ask *"What should I tackle first?"*\n• **Schedule & Execution** — mark tasks done, reschedule, or rebalance workload\n\nWhat are we accomplishing today?`,
       timestamp: 'Just now',
     },
   ]);
@@ -311,7 +311,8 @@ async function compressImageIfNeeded(file: File): Promise<File> {
 
     const historyPayload = messages.slice(-8).map((m) => ({ role: m.role, content: m.content }));
     const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    const userDateISO = new Date().toISOString();
+    const localNow = new Date();
+    const userDateISO = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, '0')}-${String(localNow.getDate()).padStart(2, '0')}`;
 
     try {
       let res;
@@ -450,7 +451,7 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                   ? 'bg-gradient-to-tr from-indigo-600 to-purple-600 text-white'
                   : msg.isError
                   ? 'bg-red-500/15 text-red-400 border border-red-500/20'
-                  : 'bg-white/[0.06] text-indigo-300 border border-white/[0.08]'
+                  : 'bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 text-white shadow-[0_0_12px_rgba(168,85,247,0.35)] border border-white/20'
               }`}>
                 {msg.role === 'user' ? <User className="w-3.5 h-3.5" /> : msg.isError ? <AlertCircle className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
               </div>
@@ -461,7 +462,7 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                     ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-tr-sm shadow-[0_8px_20px_-4px_rgba(99,102,241,0.4)]'
                     : msg.isError
                     ? 'bg-red-950/40 text-red-200 border border-red-500/25 rounded-tl-sm'
-                    : 'bg-[#14141a]/90 text-zinc-200 border border-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] rounded-tl-sm'
+                    : 'bg-[#0f0f14]/95 text-zinc-100 border border-white/[0.1] shadow-[0_8px_24px_-6px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.06)] rounded-tl-sm'
                 }`}>
                   {msg.attachmentName && (
                     <div className="mb-2.5 flex items-center gap-2 px-3 py-1.5 bg-black/30 rounded-xl text-xs font-medium border border-white/[0.05]">
@@ -485,84 +486,34 @@ async function compressImageIfNeeded(file: File): Promise<File> {
 
                 {/* Candidate Task Cards */}
                 {msg.candidateTasks && msg.candidateTasks.length > 0 && (
-                  <div className="space-y-2.5 pt-1">
-                    <span className="text-[10px] font-mono font-bold text-zinc-500 uppercase tracking-widest block">
-                      Generated Action Cards:
-                    </span>
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" /> Action Cards ({msg.candidateTasks.length})
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-medium">Review & confirm</span>
+                    </div>
 
                     {msg.candidateTasks.map((task, idx) => (
                       <div
                         key={idx}
-                        className="p-4 rounded-2xl space-y-3 bg-[#111116] border border-indigo-500/30 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.06)] animate-scale-in"
+                        className="p-3.5 sm:p-4 rounded-2xl space-y-3 bg-[#0d0d12]/95 border border-indigo-500/25 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] animate-scale-in relative overflow-hidden"
                         style={{ animationDelay: `${idx * 80}ms` }}
                       >
+                        {/* Top accent sheen */}
+                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent" />
+
+                        {/* Badges Row */}
                         <div className="flex items-center justify-between gap-2">
-                          <input
-                            type="text"
-                            value={task.title}
-                            onChange={(e) => {
-                              const updated = { ...task, title: e.target.value };
-                              setMessages((prev) =>
-                                prev.map((m) => {
-                                  if (m.id === msg.id && m.candidateTasks) {
-                                    const nextC = [...m.candidateTasks]; nextC[idx] = updated;
-                                    return { ...m, candidateTasks: nextC };
-                                  }
-                                  return m;
-                                })
-                              );
-                            }}
-                            className="flex-1 bg-zinc-950/80 border border-white/[0.1] rounded-xl px-3 py-1.5 text-xs text-zinc-100 font-semibold focus:outline-none focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                          />
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <button
-                              onClick={() => handleConfirmCandidateTask(msg.id, idx, task)}
-                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-[0_4px_12px_rgba(16,185,129,0.3)] transition-all active:scale-95"
-                            >
-                              <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Add
-                            </button>
-                            <button
-                              onClick={() => {
-                                setMessages((prev) =>
-                                  prev.map((m) => {
-                                    if (m.id === msg.id && m.candidateTasks) {
-                                      const nextC = m.candidateTasks.filter((_, i) => i !== idx);
-                                      return { ...m, candidateTasks: nextC.length > 0 ? nextC : undefined };
-                                    }
-                                    return m;
-                                  })
-                                );
-                                toast.info('Dismissed candidate task');
-                              }}
-                              className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all active:scale-95 border border-white/[0.08]"
-                              title="Cancel / Dismiss card"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/25 text-[10px] font-bold text-indigo-300 uppercase tracking-wide">
+                              {task.taskType || 'TASK'}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-zinc-400">
+                              ⚡ {task.estimatedEffortMins || 30}m
+                            </span>
                           </div>
-                        </div>
 
-                        <textarea
-                          value={task.description || ''}
-                          placeholder="Task notes / description (optional)..."
-                          rows={2}
-                          onChange={(e) => {
-                            const updated = { ...task, description: e.target.value, userModified: true };
-                            setMessages((prev) =>
-                              prev.map((m) => {
-                                if (m.id === msg.id && m.candidateTasks) {
-                                  const nextC = [...m.candidateTasks];
-                                  nextC[idx] = updated;
-                                  return { ...m, candidateTasks: nextC };
-                                }
-                                return m;
-                              })
-                            );
-                          }}
-                          className="w-full bg-zinc-950/60 border border-white/[0.08] rounded-xl px-3 py-2 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 transition-all resize-none leading-relaxed"
-                        />
-
-                        <div className="flex flex-wrap items-center gap-2">
                           <select
                             value={(task.importance ?? 3) >= 5 ? '5' : (task.importance ?? 3) === 4 ? '4' : (task.importance ?? 3) <= 2 ? '1' : '3'}
                             onChange={(e) => {
@@ -578,16 +529,60 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                                 })
                               );
                             }}
-                            className="px-2.5 py-1 text-[11px] font-bold rounded-lg border bg-zinc-950 text-zinc-200 border-white/[0.1] focus:outline-none"
+                            className="px-2.5 py-0.5 text-[10px] font-bold rounded-lg border bg-zinc-950 text-zinc-200 border-white/[0.12] focus:outline-none cursor-pointer"
                           >
                             <option value="5">🔴 Critical</option>
                             <option value="4">🟠 High</option>
                             <option value="3">🟢 Medium</option>
                             <option value="1">⚪ Low</option>
                           </select>
+                        </div>
 
-                          <div className="flex items-center gap-1.5 bg-zinc-950 border border-white/[0.1] rounded-lg px-2.5 py-1 text-[11px] text-zinc-300">
-                            <Calendar className="w-3 h-3 text-indigo-400 flex-shrink-0" />
+                        {/* Title Input */}
+                        <input
+                          type="text"
+                          value={task.title}
+                          placeholder="Task title..."
+                          onChange={(e) => {
+                            const updated = { ...task, title: e.target.value };
+                            setMessages((prev) =>
+                              prev.map((m) => {
+                                if (m.id === msg.id && m.candidateTasks) {
+                                  const nextC = [...m.candidateTasks]; nextC[idx] = updated;
+                                  return { ...m, candidateTasks: nextC };
+                                }
+                                return m;
+                              })
+                            );
+                          }}
+                          className="w-full bg-black/50 border border-white/[0.1] rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-100 font-bold focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-zinc-600"
+                        />
+
+                        {/* Optional Notes */}
+                        <textarea
+                          value={task.description || ''}
+                          placeholder="Add notes or sub-steps (optional)..."
+                          rows={2}
+                          onChange={(e) => {
+                            const updated = { ...task, description: e.target.value, userModified: true };
+                            setMessages((prev) =>
+                              prev.map((m) => {
+                                if (m.id === msg.id && m.candidateTasks) {
+                                  const nextC = [...m.candidateTasks];
+                                  nextC[idx] = updated;
+                                  return { ...m, candidateTasks: nextC };
+                                }
+                                return m;
+                              })
+                            );
+                          }}
+                          className="w-full bg-black/30 border border-white/[0.06] rounded-xl px-3 py-1.5 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all resize-none leading-relaxed"
+                        />
+
+                        {/* Bottom Controls Bar */}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/[0.06]">
+                          <div className="flex items-center gap-1.5 bg-black/50 border border-white/[0.08] rounded-xl px-2.5 py-1.5 text-[11px] text-zinc-300">
+                            <Calendar className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
                             <input
                               type="date"
                               value={
@@ -609,8 +604,35 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                                   })
                                 );
                               }}
-                              className="bg-transparent text-[11px] text-zinc-300 focus:outline-none cursor-pointer"
+                              className="bg-transparent text-[11px] text-zinc-200 focus:outline-none cursor-pointer"
                             />
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => handleConfirmCandidateTask(msg.id, idx, task)}
+                              className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-[0_4px_16px_rgba(16,185,129,0.35)] transition-all active:scale-95"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Add
+                            </button>
+                            <button
+                              onClick={() => {
+                                setMessages((prev) =>
+                                  prev.map((m) => {
+                                    if (m.id === msg.id && m.candidateTasks) {
+                                      const nextC = m.candidateTasks.filter((_, i) => i !== idx);
+                                      return { ...m, candidateTasks: nextC.length > 0 ? nextC : undefined };
+                                    }
+                                    return m;
+                                  })
+                                );
+                                toast.info('Dismissed candidate card');
+                              }}
+                              className="px-2.5 py-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl text-xs font-semibold transition-all active:scale-95 border border-white/[0.08] flex items-center gap-1"
+                              title="Cancel / Dismiss card"
+                            >
+                              <X className="w-3.5 h-3.5" /> Discard
+                            </button>
                           </div>
                         </div>
                       </div>

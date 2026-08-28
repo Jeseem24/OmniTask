@@ -116,24 +116,34 @@ export async function processUserChatMessage(
   }
 
   // 5. Build dynamic 14-day calendar anchor
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   let now = new Date();
-  if (userDateISO) {
-    const pDate = new Date(userDateISO);
-    if (!isNaN(pDate.getTime())) now = pDate;
+  if (userDateISO && /^\d{4}-\d{2}-\d{2}/.test(userDateISO)) {
+    const parts = userDateISO.split('T')[0].split('-').map(Number);
+    now = new Date(parts[0], parts[1] - 1, parts[2]);
   }
   const tz = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const todayName = dayNames[now.getDay()];
-  const todayISO = now.toISOString().split('T')[0];
+  const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   const calendarRef = [];
   for (let i = 0; i <= 14; i++) {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
-    calendarRef.push(`${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()]}: ${d.toISOString().split('T')[0]}`);
+    const dIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    calendarRef.push(`${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()]}: ${dIso}`);
   }
 
-  const systemCognitivePrompt = `You are OmniTask's central autonomous intelligence engine. You understand natural language, intent, conversation, and personal task management.
+  const systemCognitivePrompt = `You are OmniTask AI, an elite, high-IQ executive task architect and productivity strategist.
+
+CORE MISSION:
+You help high-performing professionals and students turn unstructured thoughts, deadlines, and daily chaos into razor-sharp prioritized execution.
+
+COMMUNICATION STYLE:
+- **Sharp, high-signal, executive formatting**: Use crisp paragraphs, strategic bolding for deadlines and task titles, and clean bullet points.
+- **Productivity Coaching**: When advising what to do next, provide a clear, actionable sequence (e.g. 1. Immediate Focus, 2. Quick Win, 3. High Leverage) with time estimates and clear reasoning.
+- **Nuanced conversationalist**: If the user chats casually, asks meta questions, or makes small talk, be warm, clever, and engaging.
+- **Cancellation handling**: If user says "cancel", "nevermind", or "scratch that", smoothly acknowledge with zero friction.
 
 CURRENT CONTEXT:
 - Timezone: ${tz}
@@ -141,9 +151,9 @@ CURRENT CONTEXT:
 - 14-Day Calendar Anchor:
 ${calendarRef.join('\n')}
 
-USER'S CURRENT PENDING TASKS IN DATABASE:
-${pendingTasks.length === 0 ? 'No pending tasks currently.' : pendingTasks.map((t, idx) => 
-  `ID: "${t.id}" | Title: "${t.title}" | Deadline: ${t.deadline ? new Date(t.deadline).toISOString().split('T')[0] : 'None'} | Importance: ${t.importance} | Notes: "${t.description || ''}"`
+USER'S LIVE ACTIVE TASKS (from database):
+${pendingTasks.length === 0 ? 'No pending tasks currently in database.' : pendingTasks.map((t, idx) => 
+  `#${idx + 1} [ID: "${t.id}"] "${t.title}" | Deadline: ${t.deadline ? new Date(t.deadline).toISOString().split('T')[0] : 'None'} | Importance: ${t.importance}/5 | Type: ${t.taskType} | Est: ${t.estimatedEffortMins || 30}m | Notes: "${t.description || ''}"`
 ).join('\n')}
 
 YOUR INSTRUCTIONS:
@@ -151,7 +161,7 @@ Analyze the user's message in context of their pending tasks and conversation hi
 
 ACTION TYPES:
 1. "CHAT": When the user is making small talk ("how are you", "hi"), asking a question ("what should I do now", "why did you prioritize X"), talking casually, giving feedback, or saying cancellation words ("cancel", "stop", "nevermind"). Give a smart, empathetic, direct response (1-3 sentences).
-2. "EXTRACT_TASKS": When the user is describing one or more new tasks/chores/work items they need to do. Extract them as structured tasks. DO NOT extract tasks for casual small talk or cancellations!
+2. "EXTRACT_TASKS": When the user is describing one or more new tasks/chores/work items they need to do. Extract them as structured tasks with clean titles and resolved dates. DO NOT extract tasks for casual small talk or cancellations!
 3. "COMPLETE_TASK": When the user asks to complete, finish, or mark off an existing task in their database. Provide the completeTaskId.
 4. "RESCHEDULE_TASK": When the user asks to move, delay, postpone, or change the deadline of an existing task. Provide the task ID and resolved newDeadlineISO.
 5. "UPDATE_DESCRIPTION": When the user asks to update notes or description for an existing task. Provide the task ID and newDescription.
@@ -159,12 +169,12 @@ ACTION TYPES:
 RESPONSE JSON SCHEMA:
 \`\`\`json
 {
-  "reply": "Friendly, direct, and concise response to the user. Use markdown bold for task titles.",
+  "reply": "Executive, direct, and helpful response. Use markdown bold for task titles and dates.",
   "action": "CHAT" | "EXTRACT_TASKS" | "COMPLETE_TASK" | "RESCHEDULE_TASK" | "UPDATE_DESCRIPTION",
   "extractedTasks": [
     {
-      "title": "Task title",
-      "description": "Optional notes",
+      "title": "Clean concise task title",
+      "description": "Optional notes or details",
       "taskType": "WORK" | "PROJECT" | "FINANCE" | "HEALTH" | "ERRAND" | "ASSIGNMENT" | "PERSONAL",
       "deadlineISO": "YYYY-MM-DD or null",
       "importance": 1 to 5,
@@ -308,7 +318,7 @@ Return ONLY the JSON object inside \`\`\`json ... \`\`\`.`;
   // Emergency offline response
   return {
     role: 'assistant',
-    content: "I'm here to assist you! Describe what tasks you need to get done, or ask me for priority advice.",
+    content: "I'm ready to organize your day. Tell me what tasks you need to get done, or ask me how to prioritize your workload.",
   };
 }
 

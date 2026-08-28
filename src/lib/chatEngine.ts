@@ -263,20 +263,29 @@ export async function processUserChatMessage(
     }
   }
 
-  // Greetings & casual questions
-  const isGreeting = /^(hi|hello|hey|good morning|good evening|good afternoon|howdy|sup|yo|hola|greetings)\b/i.test(lower);
+  // 1. Cancellation / Dismissal
+  if (['cancel', 'stop', 'dismiss', 'nevermind', 'never mind', 'forget it', 'clear'].includes(lower)) {
+    return {
+      role: 'assistant',
+      content: `Understood! I've cancelled that. Tell me whenever you'd like to add or manage your tasks.`,
+    };
+  }
+
+  // 2. Greetings & Casual Small Talk
+  const isGreeting = /^(hi|hello|hey|good morning|good evening|good afternoon|howdy|sup|yo|hola|greetings|how are you|how r u|how are u|how's it going|what's up|how do you do)\b/i.test(lower);
   const isMetaQuestion =
     (lower.includes('will u') || lower.includes('will you') || lower.includes('can u') ||
      lower.includes('can you') || lower.includes('how do you') || lower.includes('what can you') ||
-     lower.includes('who are you') || lower.includes('what are you') || lower.includes('help me')) &&
-    !lower.includes('buy') && !lower.includes('pay') && !lower.includes('submit') && !lower.includes('finish');
+     lower.includes('who are you') || lower.includes('what are you') || lower.includes('help me') ||
+     lower.includes('tell me') || lower.includes('how are you')) &&
+    !lower.includes('buy') && !lower.includes('pay') && !lower.includes('submit') && !lower.includes('finish') && !lower.includes('prepare');
 
   if (isGreeting || isMetaQuestion) {
     return await generateChatResponse(userText, history);
   }
 
-  // Actionable message detection
-  const isTooVague = lower.length <= 3 || ['ok', 'yes', 'no', 'k', 'lol', 'haha', 'hmm', 'nice', 'cool', 'thanks', 'thank you', 'thx', 'ty'].includes(lower);
+  // 3. Actionable task detection
+  const isTooVague = lower.length <= 2 || ['ok', 'yes', 'no', 'k', 'lol', 'haha', 'hmm', 'nice', 'cool', 'thanks', 'thank you', 'thx', 'ty'].includes(lower);
   const isConfirmation = ['yes', 'sure', 'yeah', 'yep', 'go ahead', 'do it', 'create them', 'add them'].some(c => lower === c || lower.startsWith(c));
 
   if (!isTooVague || isConfirmation) {

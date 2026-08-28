@@ -5,44 +5,21 @@ import { getLiveGroqModel, getLiveGeminiModel, invalidateModelCache } from './mo
 export interface ExtractedCandidateTask {
   title: string;
   description?: string;
-  subjectCode?: string;
-  subjectName?: string;
-  taskType:
-    | 'WORK'
-    | 'PROJECT'
-    | 'FINANCE'
-    | 'HEALTH'
-    | 'ERRAND'
-    | 'ASSIGNMENT'
-    | 'RECORD'
-    | 'OBSERVATION'
-    | 'SUBMISSION'
-    | 'QUIZ'
-    | 'EXAM'
-    | 'PRESENTATION'
-    | 'READING'
-    | 'PRACTICE'
-    | 'EVENT'
-    | 'MAINTENANCE'
-    | 'PERSONAL'
-    | 'SOCIAL'
-    | 'LEARNING'
-    | 'OTHER';
+  taskType?: string;
   deadlineISO?: string | null;
-  isDeadlineAmbiguous: boolean;
-  deadlineReasoning?: string;
-  estimatedEffortMins: number;
-  importance: number; // 1-5
-  subtasks?: {
-    title: string;
-    estimatedEffortMins?: number;
-    taskType?: string;
-  }[];
-  confidenceScore: number; // 0.0 to 1.0
+  isDeadlineAmbiguous?: boolean;
+  estimatedEffortMins?: number;
+  importance?: number;
+  confidenceScore?: number;
+  subjectCode?: string;
+  subtasks?: string[];
   userModified?: boolean;
 }
 
-export function getCalendarContextPrompt(userTimezone?: string, userDateISO?: string) {
+/**
+ * Generates an accurate, localized 14-day calendar context anchor prompt.
+ */
+export function getCalendarContextPrompt(userTimezone?: string, userDateISO?: string): string {
   let now = new Date();
   if (userDateISO) {
     const parsedUserDate = new Date(userDateISO);
@@ -87,7 +64,8 @@ RULES:
 3. Assign importance: 1=Low, 3=Normal, 4=High, 5=Critical/Urgent.
 4. Estimate effort in minutes (e.g. 15, 30, 45, 60).
 5. Always return subtasks as [] unless explicit numbered sub-steps are listed.
-6. Return a valid JSON array of objects.
+6. CRITICAL: If the user input is a greeting, small talk, casual question (e.g. "how are you", "what's up", "who are you"), cancellation keyword ("cancel", "stop", "no"), or does NOT describe an actionable task or duty, return an empty array [] without generating tasks.
+7. Return a valid JSON array of objects inside \`\`\`json ... \`\`\`.
 
 EXAMPLE OUTPUT:
 [
@@ -131,7 +109,7 @@ export async function extractTasksFromText(
       });
       const textOutput = chatCompletion.choices[0]?.message?.content || '';
       const parsed = parseJsonResponse(textOutput);
-      if (parsed.length > 0) return parsed;
+      return parsed;
     } catch (error: any) {
       if (error?.status === 404 || error?.code === 'model_not_found') {
         invalidateModelCache('groq');
@@ -152,7 +130,7 @@ export async function extractTasksFromText(
         ],
       });
       const parsed = parseJsonResponse(response.text || '');
-      if (parsed.length > 0) return parsed;
+      return parsed;
     } catch (error: any) {
       if (error?.status === 404) {
         invalidateModelCache('gemini');
@@ -247,8 +225,33 @@ function parseJsonResponse(rawOutput: string): ExtractedCandidateTask[] {
 }
 
 function generateFallbackExtraction(rawText: string): ExtractedCandidateTask[] {
+  const lower = rawText.toLowerCase().trim();
+
+  // Non-task filter: ignore greetings, questions, conversational chat, cancellation words
+  const nonTaskPhrases = [
+    'hi', 'hello', 'hey', 'how are you', 'how r u', 'how are u', 'cancel', 'stop', 'no', 'thanks',
+    'thank you', 'ok', 'okay', 'what are you', 'who are you', 'help', 'good morning',
+    'good evening', 'good afternoon', 'bye', 'goodbye', 'nothing', 'nevermind', 'sup', 'yo'
+  ];
+  
+  if (nonTaskPhrases.some(p => lower === p || lower.startsWith(p + ' ') || lower.endsWith(' ' + p))) {
+    return [];
+  }
+  
+  if (lower.endsWith('?') && !lower.includes('remind') && !lower.includes('todo') && !lower.includes('task')) {
+    return [];
+  }
+
+  // Must have action intent or date indicator
+  const actionVerbs = ['do', 'buy', 'submit', 'call', 'finish', 'prepare', 'write', 'review', 'meet', 'pay', 'complete', 'fix', 'send', 'schedule', 'attend', 'clean', 'study', 'read', 'email', 'remind', 'task', 'book', 'order', 'wash', 'check'];
+  const hasActionVerb = actionVerbs.some(v => new RegExp(`\\b${v}\\b`, 'i').test(lower));
+  const hasDateWord = ['today', 'tomorrow', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'next week', 'by ', 'due'].some(d => lower.includes(d));
+
+  if (!hasActionVerb && !hasDateWord && lower.split(/\s+/).length < 3) {
+    return [];
+  }
+
   const now = new Date();
-  const lower = rawText.toLowerCase();
   let deadlineDate: Date | null = null;
   let cleanTitle = rawText.trim();
 
@@ -258,47 +261,52 @@ function generateFallbackExtraction(rawText: string): ExtractedCandidateTask[] {
     deadlineDate = new Date(now);
     deadlineDate.setDate(now.getDate() + 1);
     cleanTitle = cleanTitle.replace(/\b(by|before|on)?\s*tomorrow\b/gi, '').trim();
-  } else if (lower.includes('today') || lower.includes('tonight')) {
+  } else if (lower.includes('next week') || lower.includes('in 7 days')) {
     deadlineDate = new Date(now);
-    cleanTitle = cleanTitle.replace(/\b(by|before|on)?\s*(today|tonight)\b/gi, '').trim();
-  } else if (lower.match(/\bin\s+(\d+)\s+days?\b/i)) {
-    const days = parseInt(lower.match(/\bin\s+(\d+)\s+days?\b/i)![1], 10);
-    deadlineDate = new Date(now);
-    deadlineDate.setDate(now.getDate() + days);
-    cleanTitle = cleanTitle.replace(/\bin\s+\d+\s+days?\b/gi, '').trim();
+    deadlineDate.setDate(now.getDate() + 7);
   } else {
-    for (let targetDay = 0; targetDay < 7; targetDay++) {
-      if (lower.includes(dayNames[targetDay])) {
-        const curDay = now.getDay();
-        let diff = (targetDay - curDay + 7) % 7;
-        if (diff === 0) diff = 7;
+    for (let i = 0; i < 7; i++) {
+      if (lower.includes(dayNames[i])) {
         deadlineDate = new Date(now);
+        const currentDay = now.getDay();
+        let diff = (i - currentDay + 7) % 7;
+        if (diff === 0) diff = 7;
         deadlineDate.setDate(now.getDate() + diff);
-        cleanTitle = cleanTitle.replace(new RegExp(`\\b(by|before|on)?\\s*${dayNames[targetDay]}\\b`, 'gi'), '').trim();
         break;
       }
     }
   }
 
-  if (!deadlineDate) {
-    deadlineDate = new Date(now);
-    deadlineDate.setDate(now.getDate() + ((7 - now.getDay()) % 7 || 7));
+  let importance = 3;
+  if (lower.includes('urgent') || lower.includes('asap') || lower.includes('critical') || lower.includes('emergency')) {
+    importance = 5;
+  } else if (lower.includes('important') || lower.includes('high priority')) {
+    importance = 4;
   }
 
-  cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
-  if (cleanTitle.length > 80) cleanTitle = cleanTitle.slice(0, 80);
+  let taskType = 'WORK';
+  if (lower.includes('project') || lower.includes('build') || lower.includes('code') || lower.includes('design')) {
+    taskType = 'PROJECT';
+  } else if (lower.includes('pay') || lower.includes('bill') || lower.includes('fee') || lower.includes('tax') || lower.includes('money')) {
+    taskType = 'FINANCE';
+  } else if (lower.includes('buy') || lower.includes('grocer') || lower.includes('shop') || lower.includes('clean')) {
+    taskType = 'ERRAND';
+  } else if (lower.includes('gym') || lower.includes('doctor') || lower.includes('health') || lower.includes('workout')) {
+    taskType = 'HEALTH';
+  } else if (lower.includes('homework') || lower.includes('assignment') || lower.includes('study') || lower.includes('exam')) {
+    taskType = 'ASSIGNMENT';
+  }
 
   return [
     {
-      title: cleanTitle || 'New Task',
-      description: `Extracted from "${rawText.slice(0, 100)}"`,
-      taskType: 'PERSONAL',
-      deadlineISO: deadlineDate.toISOString(),
-      isDeadlineAmbiguous: false,
-      deadlineReasoning: 'Parsed from user input',
+      title: cleanTitle.length > 80 ? cleanTitle.substring(0, 77) + '...' : cleanTitle,
+      description: `Extracted from "${rawText.trim()}"`,
+      taskType,
+      deadlineISO: deadlineDate ? deadlineDate.toISOString().split('T')[0] : null,
+      isDeadlineAmbiguous: !deadlineDate,
       estimatedEffortMins: 30,
-      importance: 3,
-      confidenceScore: 0.9,
+      importance,
+      confidenceScore: 0.8,
       subtasks: [],
     },
   ];

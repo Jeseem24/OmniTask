@@ -514,12 +514,32 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                             }}
                             className="flex-1 bg-zinc-950/80 border border-white/[0.1] rounded-xl px-3 py-1.5 text-xs text-zinc-100 font-semibold focus:outline-none focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/20 transition-all"
                           />
-                          <button
-                            onClick={() => handleConfirmCandidateTask(msg.id, idx, task)}
-                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-[0_4px_12px_rgba(16,185,129,0.3)] transition-all flex-shrink-0 active:scale-95"
-                          >
-                            <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Add
-                          </button>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => handleConfirmCandidateTask(msg.id, idx, task)}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-[0_4px_12px_rgba(16,185,129,0.3)] transition-all active:scale-95"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Add
+                            </button>
+                            <button
+                              onClick={() => {
+                                setMessages((prev) =>
+                                  prev.map((m) => {
+                                    if (m.id === msg.id && m.candidateTasks) {
+                                      const nextC = m.candidateTasks.filter((_, i) => i !== idx);
+                                      return { ...m, candidateTasks: nextC.length > 0 ? nextC : undefined };
+                                    }
+                                    return m;
+                                  })
+                                );
+                                toast.info('Dismissed candidate task');
+                              }}
+                              className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all active:scale-95 border border-white/[0.08]"
+                              title="Cancel / Dismiss card"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         <textarea

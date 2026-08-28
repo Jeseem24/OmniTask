@@ -1,12 +1,13 @@
 {
-  "name": "temp-app",
-  "version": "0.1.0",
+  "name": "omnitask-ai",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@google/genai": "^2.16.0",

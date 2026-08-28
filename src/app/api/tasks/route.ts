@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbInitialized } from '@/lib/prisma';
 import { calculatePriorityScore } from '@/lib/priorityEngine';
 
 export async function GET(req: Request) {
   try {
+    await ensureDbInitialized();
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const subjectId = searchParams.get('subjectId');
     const taskType = searchParams.get('taskType');
-    const availableMins = searchParams.get('availableMins'); // For "What should I do now?" filter
+    const availableMins = searchParams.get('availableMins');
 
     const whereClause: any = {
-      parentTaskId: null, // Return top-level tasks with subtasks included
+      parentTaskId: null,
     };
 
     if (status && status !== 'all') {
@@ -57,6 +59,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    await ensureDbInitialized();
+
     const body = await req.json();
     const { title, description, subjectId, taskType, deadlineISO, importance, estimatedEffortMins } = body;
 

@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbInitialized } from '@/lib/prisma';
 import { calculatePriorityScore } from '@/lib/priorityEngine';
 
 export async function POST(req: Request) {
   try {
+    await ensureDbInitialized();
+
     const body = await req.json();
     let tasksToConfirm: any[] = [];
 
@@ -81,11 +83,15 @@ export async function POST(req: Request) {
       // Create Subtasks if any
       if (Array.isArray(taskData.subtasks) && taskData.subtasks.length > 0) {
         for (const sub of taskData.subtasks) {
+          const subTitle = typeof sub === 'string' ? sub : sub?.title || 'Subtask';
+          const subTaskType = typeof sub === 'object' && sub?.taskType ? sub.taskType : 'SUBMISSION';
+          const subEffort = typeof sub === 'object' && sub?.estimatedEffortMins ? sub.estimatedEffortMins : 15;
+
           const subPriority = calculatePriorityScore({
             deadline: deadlineDate,
             importance: taskData.importance || 3,
-            taskType: sub.taskType || 'SUBMISSION',
-            estimatedEffortMins: sub.estimatedEffortMins || 15,
+            taskType: subTaskType,
+            estimatedEffortMins: subEffort,
           });
 
           await prisma.task.create({
@@ -93,13 +99,13 @@ export async function POST(req: Request) {
               sourceId: sourceId || null,
               parentTaskId: parentTask.id,
               subjectId,
-              title: sub.title,
-              taskType: sub.taskType || 'SUBMISSION',
+              title: subTitle,
+              taskType: subTaskType,
               status: 'PENDING',
               priorityScore: subPriority,
               importance: taskData.importance || 3,
               deadline: deadlineDate,
-              estimatedEffortMins: sub.estimatedEffortMins || 15,
+              estimatedEffortMins: subEffort,
             },
           });
         }
@@ -113,12 +119,12 @@ export async function POST(req: Request) {
       await prisma.candidateExtraction.update({
         where: { id: extractionId },
         data: { status: 'APPROVED' },
-      });
+      }).catch(() => {});
     }
 
     return NextResponse.json({ success: true, count: createdTasks.length, createdTasks });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error confirming candidate tasks:', error);
-    return NextResponse.json({ error: 'Failed to confirm tasks' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to confirm tasks' }, { status: 500 });
   }
 }

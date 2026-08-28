@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { processUserChatMessage } from '@/lib/chatEngine';
+import { ensureDbInitialized } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
+    await ensureDbInitialized();
     const contentType = req.headers.get('content-type') || '';
 
     let userText = '';

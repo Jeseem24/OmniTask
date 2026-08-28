@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureDbInitialized } from '@/lib/prisma';
 import { calculatePriorityScore } from '@/lib/priorityEngine';
 
 export async function PATCH(
@@ -7,6 +7,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureDbInitialized();
+
     const { id } = await params;
     const body = await req.json();
 
@@ -75,6 +77,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureDbInitialized();
+
     const { id } = await params;
     await prisma.task.delete({
       where: { id },

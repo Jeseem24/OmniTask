@@ -12,7 +12,8 @@ export interface ExtractedCandidateTask {
   importance?: number;
   confidenceScore?: number;
   subjectCode?: string;
-  subtasks?: string[];
+  subjectName?: string;
+  subtasks?: Array<string | { title: string; estimatedEffortMins?: number; taskType?: string }>;
   userModified?: boolean;
 }
 

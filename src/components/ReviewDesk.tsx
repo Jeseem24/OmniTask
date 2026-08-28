@@ -34,7 +34,15 @@ export default function ReviewDesk({ extractionId, sourceId, initialCandidateTas
 
   const handleUpdateSubtask = (taskIndex: number, subIndex: number, title: string) => {
     const updated = [...tasks];
-    if (updated[taskIndex].subtasks) { updated[taskIndex].subtasks![subIndex].title = title; setTasks(updated); }
+    if (updated[taskIndex].subtasks) {
+      const current = updated[taskIndex].subtasks![subIndex];
+      if (typeof current === 'string') {
+        updated[taskIndex].subtasks![subIndex] = title;
+      } else {
+        updated[taskIndex].subtasks![subIndex] = { ...current, title };
+      }
+      setTasks(updated);
+    }
   };
 
   const handleRemoveSubtask = (taskIndex: number, subIndex: number) => {
@@ -43,6 +51,10 @@ export default function ReviewDesk({ extractionId, sourceId, initialCandidateTas
       updated[taskIndex].subtasks = updated[taskIndex].subtasks!.filter((_, i) => i !== subIndex);
       setTasks(updated);
     }
+  };
+
+  const getSubtaskTitle = (sub: string | { title: string }): string => {
+    return typeof sub === 'string' ? sub : sub?.title || '';
   };
 
   const handleConfirmAll = async () => {
@@ -153,7 +165,7 @@ export default function ReviewDesk({ extractionId, sourceId, initialCandidateTas
                   <div className="space-y-1.5">
                     {task.subtasks.map((sub, subIndex) => (
                       <div key={subIndex} className="flex items-center gap-2">
-                        <input type="text" value={sub.title} onChange={(e) => handleUpdateSubtask(index, subIndex, e.target.value)}
+                        <input type="text" value={getSubtaskTitle(sub)} onChange={(e) => handleUpdateSubtask(index, subIndex, e.target.value)}
                           className="flex-1 bg-zinc-950/40 border border-white/[0.04] rounded-lg px-2.5 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500/40" />
                         <button type="button" onClick={() => handleRemoveSubtask(index, subIndex)} className="text-zinc-600 hover:text-red-400 p-1 transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />

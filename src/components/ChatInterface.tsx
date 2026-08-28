@@ -564,7 +564,7 @@ async function compressImageIfNeeded(file: File): Promise<File> {
 
                         <div className="flex flex-wrap items-center gap-2">
                           <select
-                            value={task.importance >= 5 ? '5' : task.importance === 4 ? '4' : task.importance <= 2 ? '1' : '3'}
+                            value={(task.importance ?? 3) >= 5 ? '5' : (task.importance ?? 3) === 4 ? '4' : (task.importance ?? 3) <= 2 ? '1' : '3'}
                             onChange={(e) => {
                               const imp = parseInt(e.target.value, 10);
                               const updated = { ...task, importance: imp, userModified: true };

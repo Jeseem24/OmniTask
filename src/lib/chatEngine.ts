@@ -1,8 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import { prisma } from './prisma';
 import { calculatePriorityScore, getPriorityTier } from './priorityEngine';
-import { extractTasksFromText, extractTasksFromImage, ExtractedCandidateTask } from './aiExtractor';
 import { getLiveGroqModel, getLiveGeminiModel, invalidateModelCache } from './modelManager';
+import { extractTasksFromImage, ExtractedCandidateTask } from './aiExtractor';
 
 export interface ChatMessagePayload {
   role: 'user' | 'assistant';
@@ -18,79 +18,25 @@ export interface ChatHistoryItem {
   content: string;
 }
 
-const CHAT_SYSTEM_PROMPT = `You are OmniTask AI, a warm, efficient personal task manager.
-
-PERSONALITY:
-- Short, high-signal responses (1-3 sentences).
-- Use **bold** for task names and dates.
-- Use bullet points when listing multiple items.
-- Be proactive and helpful.
-
-CAPABILITIES:
-1. Extract tasks from conversation, voice, files, and images.
-2. Provide priority advice from the user's active database.
-3. Reschedule deadlines, mark tasks complete, update priorities.
-
-RULES:
-- When user describes something they need to do, extract it as candidate task cards.
-- When user chats casually or asks questions, provide a friendly conversational answer.
-- Never invent tasks the user didn't mention.`;
-
-// Fuzzy matching user input against database task titles
-function findBestMatchingTask(pendingTasks: any[], userText: string): any | null {
-  const lowerText = userText.toLowerCase();
-  
-  const directMatch = pendingTasks.find(t => lowerText.includes(t.title.toLowerCase()) || t.title.toLowerCase().includes(lowerText));
-  if (directMatch) return directMatch;
-
-  const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'need', 'mark', 'finish', 'completed', 'done', 'reschedule', 'postpone', 'move', 'change', 'date', 'deadline', 'task', 'report', 'please', 'can', 'you']);
-  const userWords = lowerText.split(/\W+/).filter(w => w.length > 2 && !stopWords.has(w));
-  if (userWords.length === 0) return null;
-
-  let bestTask = null;
-  let maxMatches = 0;
-
-  for (const task of pendingTasks) {
-    const taskTitleWords = task.title.toLowerCase().split(/\W+/);
-    let matchCount = 0;
-    for (const w of userWords) {
-      if (taskTitleWords.some((tw: string) => tw.includes(w) || w.includes(tw))) matchCount++;
-    }
-    if (matchCount > maxMatches) { maxMatches = matchCount; bestTask = task; }
-  }
-
-  return maxMatches > 0 ? bestTask : null;
-}
-
-function parseRelativeDate(text: string): Date {
-  const lower = text.toLowerCase();
-  const now = new Date();
-  const result = new Date(now);
-
-  const inXDaysMatch = lower.match(/in\s+(\d+)\s+days?/);
-  if (inXDaysMatch) { result.setDate(now.getDate() + parseInt(inXDaysMatch[1], 10)); return result; }
-  if (lower.includes('tomorrow')) { result.setDate(now.getDate() + 1); return result; }
-  if (lower.includes('next week') || lower.includes('in 7 days')) { result.setDate(now.getDate() + 7); return result; }
-
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  for (let targetDayIdx = 0; targetDayIdx < 7; targetDayIdx++) {
-    if (lower.includes(dayNames[targetDayIdx])) {
-      const currentDayIdx = now.getDay();
-      let diff = (targetDayIdx - currentDayIdx + 7) % 7;
-      if (diff === 0) diff = 7;
-      result.setDate(now.getDate() + diff);
-      return result;
-    }
-  }
-
-  result.setDate(now.getDate() + 2);
-  return result;
-}
-
 export interface AttachmentItem {
   buffer: Buffer;
   mimeType: string;
   name: string;
+}
+
+interface CognitiveAIResponse {
+  reply: string;
+  action: 'CHAT' | 'EXTRACT_TASKS' | 'COMPLETE_TASK' | 'RESCHEDULE_TASK' | 'UPDATE_DESCRIPTION' | 'MULTI_ACTION';
+  extractedTasks?: ExtractedCandidateTask[];
+  completeTaskId?: string;
+  reschedule?: {
+    taskId: string;
+    newDeadlineISO: string;
+  };
+  updateDescription?: {
+    taskId: string;
+    newDescription: string;
+  };
 }
 
 export async function processUserChatMessage(
@@ -107,7 +53,7 @@ export async function processUserChatMessage(
     allAttachments = [{ buffer: attachmentBuffer, mimeType: attachmentMimeType, name: attachmentName }];
   }
 
-  // Handle audio transcription
+  // 1. Handle audio transcription if present
   for (const att of allAttachments) {
     if (att.mimeType.includes('audio') && process.env.GROQ_API_KEY) {
       try {
@@ -123,259 +69,268 @@ export async function processUserChatMessage(
     }
   }
 
-  // Process file attachments (PDFs and Images)
-  const nonAudioAttachments = allAttachments.filter((att) => !att.mimeType.includes('audio'));
-  if (nonAudioAttachments.length > 0) {
+  // 2. Handle image attachments with Vision
+  const imageAttachments = allAttachments.filter((att) => att.mimeType.includes('image'));
+  if (imageAttachments.length > 0) {
     let combinedCandidates: ExtractedCandidateTask[] = [];
-
-    for (const att of nonAudioAttachments) {
-      if (att.mimeType.includes('pdf')) {
-        try {
-          const pdfParse = require('pdf-parse');
-          const parsedPdf = await pdfParse(att.buffer);
-          const pdfText = parsedPdf.text || `PDF: ${att.name}`;
-          combinedCandidates.push(...await extractTasksFromText(pdfText, userTimezone, userDateISO));
-        } catch (err) { console.error(`PDF error (${att.name}):`, err); }
-      } else if (att.mimeType.includes('image')) {
-        try {
-          const base64Image = att.buffer.toString('base64');
-          combinedCandidates.push(...await extractTasksFromImage(base64Image, att.mimeType, userTimezone, userDateISO));
-        } catch (err) { console.error(`Image error (${att.name}):`, err); }
-      }
+    for (const att of imageAttachments) {
+      try {
+        const base64Image = att.buffer.toString('base64');
+        combinedCandidates.push(...await extractTasksFromImage(base64Image, att.mimeType, userTimezone, userDateISO));
+      } catch (err) { console.error('Image error:', err); }
     }
-
     const count = combinedCandidates.length;
-    const fileNames = nonAudioAttachments.map((a) => a.name).join(', ');
-    const contentText = count > 0
-      ? `Analyzed **${fileNames}** and extracted **${count} task${count > 1 ? 's' : ''}**. Click **Add** to save:`
-      : `Reviewed **${fileNames}** but found no explicit action items.`;
-
     return {
       role: 'assistant',
-      content: contentText,
-      attachmentName: nonAudioAttachments[0]?.name,
-      attachmentType: nonAudioAttachments[0]?.mimeType.includes('pdf') ? 'pdf' : 'image',
+      content: count > 0
+        ? `Analyzed image and extracted **${count} task${count > 1 ? 's' : ''}**. Click **Add** to confirm:`
+        : `Reviewed your image, but found no explicit action items.`,
+      attachmentName: imageAttachments[0]?.name,
+      attachmentType: 'image',
       candidateTasks: count > 0 ? combinedCandidates : undefined,
     };
   }
 
-  const lower = userText.toLowerCase().trim();
-
-  // Intent: Recommendations
-  if (
-    lower.includes('what should i do') || lower.includes('what to do') ||
-    lower.includes('recommend') || lower.includes('where to start') ||
-    lower.includes('due soon') || lower.includes('next up') ||
-    lower.includes('priorit') || lower.includes('what\'s next') ||
-    lower.includes('my tasks') || lower.includes('show tasks')
-  ) {
-    const pendingTasks = await prisma.task.findMany({
-      where: { status: 'PENDING', parentTaskId: null },
-      include: { subject: true },
-      orderBy: [{ priorityScore: 'desc' }, { deadline: 'asc' }],
-      take: 7,
-    });
-
-    if (pendingTasks.length === 0) {
-      return { role: 'assistant', content: `You're all caught up! 🎉 No pending tasks. Tell me about anything new you need to handle.` };
-    }
-
-    const topTask = pendingTasks[0];
-    const tier = getPriorityTier(topTask.priorityScore);
-    
-    let reply = `Here is your priority queue:\n\n`;
-    pendingTasks.forEach((t, i) => {
-      const tTier = getPriorityTier(t.priorityScore);
-      const deadlineStr = t.deadline ? ` — due ${new Date(t.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : '';
-      const priorityEmoji = tTier.label === 'Critical' ? '🔴' : tTier.label === 'High' ? '🟠' : tTier.label === 'Medium' ? '🟢' : '⚪';
-      reply += `${i + 1}. ${priorityEmoji} **${t.title}**${deadlineStr}\n`;
-    });
-    
-    reply += `\nRecommended focus right now: **${topTask.title}** (${tier.label} priority).`;
-
-    return { role: 'assistant', content: reply, taskActionTaken: 'QUERY_RECOMMENDATIONS' };
-  }
-
-  // Intent: Task Completion
-  if (lower.startsWith('mark ') || lower.startsWith('finish ') || lower.startsWith('completed ') || lower.includes('done with') || lower.includes('finished ')) {
-    const pendingTasks = await prisma.task.findMany({ where: { status: 'PENDING' } });
-    const target = findBestMatchingTask(pendingTasks, lower);
-    if (target) {
-      await prisma.task.update({
-        where: { id: target.id },
-        data: { status: 'COMPLETED', completedAt: new Date() },
-      });
-      return { role: 'assistant', content: `Marked **"${target.title}"** as completed! ✅`, taskActionTaken: 'TASK_COMPLETED' };
+  // 3. Handle PDF attachments
+  const pdfAttachments = allAttachments.filter((att) => att.mimeType.includes('pdf'));
+  if (pdfAttachments.length > 0) {
+    for (const att of pdfAttachments) {
+      try {
+        const pdfParse = require('pdf-parse');
+        const parsedPdf = await pdfParse(att.buffer);
+        userText += `\n[DOCUMENT CONTENT: ${att.name}]\n${parsedPdf.text}`;
+      } catch (err) { console.error('PDF parse error:', err); }
     }
   }
 
-  // Intent: Rescheduling
-  if (lower.startsWith('reschedule ') || lower.startsWith('postpone ') || lower.includes('move ') || lower.includes('change deadline') || lower.includes('push back')) {
-    const pendingTasks = await prisma.task.findMany({ where: { status: 'PENDING' } });
-    const target = findBestMatchingTask(pendingTasks, lower);
-    if (target) {
-      const newDate = parseRelativeDate(lower);
-      await prisma.task.update({
-        where: { id: target.id },
-        data: { deadline: newDate, userModified: true },
-      });
-      return {
-        role: 'assistant',
-        content: `Rescheduled **"${target.title}"** to **${newDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}** 📅`,
-        taskActionTaken: 'TASK_RESCHEDULED',
-      };
-    }
-  }
-
-  // Intent: Update Description / Notes via Chat
-  if (
-    lower.includes('change description') ||
-    lower.includes('update description') ||
-    lower.includes('set description') ||
-    lower.includes('add description') ||
-    lower.includes('change note') ||
-    lower.includes('update note') ||
-    lower.includes('add note')
-  ) {
-    const pendingTasks = await prisma.task.findMany({ where: { status: 'PENDING' } });
-    const target = findBestMatchingTask(pendingTasks, lower);
-    if (target) {
-      let newDesc = '';
-      const splitMatch = userText.match(/(?:to|as|:)\s*["']?([^"']+)["']?$/i);
-      if (splitMatch && splitMatch[1]) {
-        newDesc = splitMatch[1].trim();
-      } else {
-        newDesc = userText.replace(/.*(change|update|set|add)\s+(the\s+)?(description|notes?)\s+(of|for|to)?\s+[^:]+[:\s]/i, '').trim();
-      }
-      newDesc = newDesc.replace(/^:\s*/, '').trim();
-
-      if (newDesc) {
-        await prisma.task.update({
-          where: { id: target.id },
-          data: { description: newDesc, userModified: true },
-        });
-        return {
-          role: 'assistant',
-          content: `Updated notes for **"${target.title}"** to: *"${newDesc}"* 📝`,
-          taskActionTaken: 'TASK_UPDATED',
-        };
-      }
-    }
-  }
-
-  // 1. Cancellation / Dismissal
-  if (['cancel', 'stop', 'dismiss', 'nevermind', 'never mind', 'forget it', 'clear'].includes(lower)) {
-    return {
-      role: 'assistant',
-      content: `Understood! I've cancelled that. Tell me whenever you'd like to add or manage your tasks.`,
-    };
-  }
-
-  // 2. Greetings & Casual Small Talk
-  const isGreeting = /^(hi|hello|hey|good morning|good evening|good afternoon|howdy|sup|yo|hola|greetings|how are you|how r u|how are u|how's it going|what's up|how do you do)\b/i.test(lower);
-  const isMetaQuestion =
-    (lower.includes('will u') || lower.includes('will you') || lower.includes('can u') ||
-     lower.includes('can you') || lower.includes('how do you') || lower.includes('what can you') ||
-     lower.includes('who are you') || lower.includes('what are you') || lower.includes('help me') ||
-     lower.includes('tell me') || lower.includes('how are you')) &&
-    !lower.includes('buy') && !lower.includes('pay') && !lower.includes('submit') && !lower.includes('finish') && !lower.includes('prepare');
-
-  if (isGreeting || isMetaQuestion) {
-    return await generateChatResponse(userText, history);
-  }
-
-  // 3. Actionable task detection
-  const isTooVague = lower.length <= 2 || ['ok', 'yes', 'no', 'k', 'lol', 'haha', 'hmm', 'nice', 'cool', 'thanks', 'thank you', 'thx', 'ty'].includes(lower);
-  const isConfirmation = ['yes', 'sure', 'yeah', 'yep', 'go ahead', 'do it', 'create them', 'add them'].some(c => lower === c || lower.startsWith(c));
-
-  if (!isTooVague || isConfirmation) {
-    let textToExtract = userText;
-    
-    if (isConfirmation && history && history.length > 0) {
-      const lastUserMsg = [...history].reverse().find(
-        (h) => h.role === 'user' && h.content && h.content.trim() !== userText.trim() && h.content.length > 10
-      );
-      if (lastUserMsg) textToExtract = lastUserMsg.content;
-    }
-
-    const candidateTasks = await extractTasksFromText(textToExtract, userTimezone, userDateISO);
-
-    if (candidateTasks && candidateTasks.length > 0) {
-      const count = candidateTasks.length;
-      return {
-        role: 'assistant',
-        content: count > 1
-          ? `Found **${count} tasks** in your request. Click **Add** to confirm:`
-          : `Review the task below and click **Add** to save it:`,
-        candidateTasks,
-      };
-    }
-  }
-
-  return await generateChatResponse(userText, history);
-}
-
-async function generateChatResponse(userText: string, history: ChatHistoryItem[]): Promise<ChatMessagePayload> {
-  let allPendingTasks: any[] = [];
+  // 4. Fetch live database state for grounding
+  let pendingTasks: any[] = [];
   try {
-    allPendingTasks = await prisma.task.findMany({ where: { status: 'PENDING' }, take: 10 });
-  } catch {}
+    pendingTasks = await prisma.task.findMany({
+      where: { status: 'PENDING' },
+      orderBy: [{ priorityScore: 'desc' }, { deadline: 'asc' }],
+      take: 15,
+    });
+  } catch (err) {
+    console.error('Database fetch error:', err);
+  }
 
-  const taskContext = allPendingTasks.length > 0
-    ? `\nUSER'S CURRENT PENDING TASKS:\n` + allPendingTasks.map(t => 
-        `- "${t.title}" (Due: ${t.deadline ? new Date(t.deadline).toLocaleDateString('en-GB') : 'No deadline'})`
-      ).join('\n')
-    : `\nUSER HAS NO PENDING TASKS.`;
+  // 5. Build dynamic 14-day calendar anchor
+  let now = new Date();
+  if (userDateISO) {
+    const pDate = new Date(userDateISO);
+    if (!isNaN(pDate.getTime())) now = pDate;
+  }
+  const tz = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayName = dayNames[now.getDay()];
+  const todayISO = now.toISOString().split('T')[0];
 
-  const systemPrompt = `${CHAT_SYSTEM_PROMPT}\n${taskContext}`;
+  const calendarRef = [];
+  for (let i = 0; i <= 14; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    calendarRef.push(`${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()]}: ${d.toISOString().split('T')[0]}`);
+  }
 
-  // 1. Dynamic Groq Live Chat
+  const systemCognitivePrompt = `You are OmniTask's central autonomous intelligence engine. You understand natural language, intent, conversation, and personal task management.
+
+CURRENT CONTEXT:
+- Timezone: ${tz}
+- Today's Date: ${todayISO} (${todayName})
+- 14-Day Calendar Anchor:
+${calendarRef.join('\n')}
+
+USER'S CURRENT PENDING TASKS IN DATABASE:
+${pendingTasks.length === 0 ? 'No pending tasks currently.' : pendingTasks.map((t, idx) => 
+  `ID: "${t.id}" | Title: "${t.title}" | Deadline: ${t.deadline ? new Date(t.deadline).toISOString().split('T')[0] : 'None'} | Importance: ${t.importance} | Notes: "${t.description || ''}"`
+).join('\n')}
+
+YOUR INSTRUCTIONS:
+Analyze the user's message in context of their pending tasks and conversation history. Determine the appropriate action and respond in structured JSON.
+
+ACTION TYPES:
+1. "CHAT": When the user is making small talk ("how are you", "hi"), asking a question ("what should I do now", "why did you prioritize X"), talking casually, giving feedback, or saying cancellation words ("cancel", "stop", "nevermind"). Give a smart, empathetic, direct response (1-3 sentences).
+2. "EXTRACT_TASKS": When the user is describing one or more new tasks/chores/work items they need to do. Extract them as structured tasks. DO NOT extract tasks for casual small talk or cancellations!
+3. "COMPLETE_TASK": When the user asks to complete, finish, or mark off an existing task in their database. Provide the completeTaskId.
+4. "RESCHEDULE_TASK": When the user asks to move, delay, postpone, or change the deadline of an existing task. Provide the task ID and resolved newDeadlineISO.
+5. "UPDATE_DESCRIPTION": When the user asks to update notes or description for an existing task. Provide the task ID and newDescription.
+
+RESPONSE JSON SCHEMA:
+\`\`\`json
+{
+  "reply": "Friendly, direct, and concise response to the user. Use markdown bold for task titles.",
+  "action": "CHAT" | "EXTRACT_TASKS" | "COMPLETE_TASK" | "RESCHEDULE_TASK" | "UPDATE_DESCRIPTION",
+  "extractedTasks": [
+    {
+      "title": "Task title",
+      "description": "Optional notes",
+      "taskType": "WORK" | "PROJECT" | "FINANCE" | "HEALTH" | "ERRAND" | "ASSIGNMENT" | "PERSONAL",
+      "deadlineISO": "YYYY-MM-DD or null",
+      "importance": 1 to 5,
+      "estimatedEffortMins": 30
+    }
+  ],
+  "completeTaskId": "task-id-here (if completing)",
+  "reschedule": {
+    "taskId": "task-id-here",
+    "newDeadlineISO": "YYYY-MM-DD"
+  },
+  "updateDescription": {
+    "taskId": "task-id-here",
+    "newDescription": "updated note content"
+  }
+}
+\`\`\`
+
+Return ONLY the JSON object inside \`\`\`json ... \`\`\`.`;
+
+  // 6. Execute Autonomous Unified LLM Reasoning
+  let cognitiveResult: CognitiveAIResponse | null = null;
+
+  // Try Groq LPU first
   const groqApiKey = process.env.GROQ_API_KEY;
   if (groqApiKey) {
     try {
       const liveModel = await getLiveGroqModel(groqApiKey);
       const { Groq } = require('groq-sdk');
       const groq = new Groq({ apiKey: groqApiKey });
-      const chatCompletion = await groq.chat.completions.create({
+      const completion = await groq.chat.completions.create({
         messages: [
-          { role: 'system', content: systemPrompt },
-          ...history.slice(-8).map(h => ({ role: h.role, content: h.content })),
+          { role: 'system', content: systemCognitivePrompt },
+          ...history.slice(-8).map((h) => ({ role: h.role, content: h.content })),
           { role: 'user', content: userText },
         ],
         model: liveModel,
-        temperature: 0.6,
-        max_tokens: 500,
+        temperature: 0.2,
       });
-      const reply = chatCompletion.choices[0]?.message?.content;
-      if (reply) return { role: 'assistant', content: reply };
+      cognitiveResult = parseCognitiveResponse(completion.choices[0]?.message?.content || '');
     } catch (e: any) {
-      if (e?.status === 404 || e?.code === 'model_not_found') {
-        invalidateModelCache('groq');
-      }
-      console.warn('Groq chat error, falling back:', e);
+      if (e?.status === 404 || e?.code === 'model_not_found') invalidateModelCache('groq');
+      console.warn('Groq cognitive error, falling back:', e);
     }
   }
 
-  // 2. Dynamic Gemini Live Chat
+  // Try Gemini fallback
   const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (geminiApiKey) {
+  if (!cognitiveResult && geminiApiKey) {
     try {
       const liveModel = await getLiveGeminiModel(geminiApiKey);
       const ai = new GoogleGenAI({ apiKey: geminiApiKey });
       const res = await ai.models.generateContent({
         model: liveModel,
         contents: [
-          { role: 'user', parts: [{ text: `${systemPrompt}\n\nUSER: ${userText}` }] },
+          { role: 'user', parts: [{ text: `${systemCognitivePrompt}\n\nUSER MESSAGE:\n${userText}` }] },
         ],
       });
-      if (res.text) return { role: 'assistant', content: res.text };
+      cognitiveResult = parseCognitiveResponse(res.text || '');
     } catch (e: any) {
-      if (e?.status === 404) {
-        invalidateModelCache('gemini');
-      }
-      console.warn('Gemini chat error, falling back:', e);
+      if (e?.status === 404) invalidateModelCache('gemini');
+      console.warn('Gemini cognitive error:', e);
     }
   }
 
-  return { role: 'assistant', content: `I'm here to help! Tell me about any upcoming tasks or ask "What should I do now?" to prioritize.` };
+  // 7. Execute Database Actions if LLM determined an action
+  if (cognitiveResult) {
+    // Action: Complete Task
+    if (cognitiveResult.action === 'COMPLETE_TASK' && cognitiveResult.completeTaskId) {
+      try {
+        await prisma.task.update({
+          where: { id: cognitiveResult.completeTaskId },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+        return {
+          role: 'assistant',
+          content: cognitiveResult.reply,
+          taskActionTaken: 'TASK_COMPLETED',
+        };
+      } catch (err) {
+        console.error('Complete task DB error:', err);
+      }
+    }
+
+    // Action: Reschedule Task
+    if (cognitiveResult.action === 'RESCHEDULE_TASK' && cognitiveResult.reschedule?.taskId && cognitiveResult.reschedule?.newDeadlineISO) {
+      try {
+        await prisma.task.update({
+          where: { id: cognitiveResult.reschedule.taskId },
+          data: {
+            deadline: new Date(cognitiveResult.reschedule.newDeadlineISO),
+            userModified: true,
+          },
+        });
+        return {
+          role: 'assistant',
+          content: cognitiveResult.reply,
+          taskActionTaken: 'TASK_RESCHEDULED',
+        };
+      } catch (err) {
+        console.error('Reschedule task DB error:', err);
+      }
+    }
+
+    // Action: Update Description
+    if (cognitiveResult.action === 'UPDATE_DESCRIPTION' && cognitiveResult.updateDescription?.taskId) {
+      try {
+        await prisma.task.update({
+          where: { id: cognitiveResult.updateDescription.taskId },
+          data: {
+            description: cognitiveResult.updateDescription.newDescription,
+            userModified: true,
+          },
+        });
+        return {
+          role: 'assistant',
+          content: cognitiveResult.reply,
+          taskActionTaken: 'TASK_UPDATED',
+        };
+      } catch (err) {
+        console.error('Update description DB error:', err);
+      }
+    }
+
+    // Action: Extract Tasks
+    if (cognitiveResult.action === 'EXTRACT_TASKS' && cognitiveResult.extractedTasks && cognitiveResult.extractedTasks.length > 0) {
+      return {
+        role: 'assistant',
+        content: cognitiveResult.reply,
+        candidateTasks: cognitiveResult.extractedTasks,
+      };
+    }
+
+    // Action: Conversational Chat
+    return {
+      role: 'assistant',
+      content: cognitiveResult.reply || "I'm here to help manage your tasks. What would you like to do?",
+    };
+  }
+
+  // Emergency offline response
+  return {
+    role: 'assistant',
+    content: "I'm here to assist you! Describe what tasks you need to get done, or ask me for priority advice.",
+  };
+}
+
+function parseCognitiveResponse(rawText: string): CognitiveAIResponse | null {
+  try {
+    let clean = rawText.trim();
+    if (clean.includes('```json')) {
+      clean = clean.split('```json')[1].split('```')[0].trim();
+    } else if (clean.includes('```')) {
+      clean = clean.split('```')[1].split('```')[0].trim();
+    }
+    const parsed = JSON.parse(clean);
+    if (parsed && typeof parsed.reply === 'string') {
+      return parsed as CognitiveAIResponse;
+    }
+  } catch (err) {
+    try {
+      const match = rawText.match(/\{[\s\S]*\}/);
+      if (match) {
+        return JSON.parse(match[0]) as CognitiveAIResponse;
+      }
+    } catch {}
+  }
+  return null;
 }

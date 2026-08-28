@@ -509,9 +509,6 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                             <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/25 text-[10px] font-bold text-indigo-300 uppercase tracking-wide">
                               {task.taskType || 'TASK'}
                             </span>
-                            <span className="px-2 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-zinc-400">
-                              ⚡ {task.estimatedEffortMins || 30}m
-                            </span>
                           </div>
 
                           <select

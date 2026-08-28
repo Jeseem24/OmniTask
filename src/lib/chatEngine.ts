@@ -141,7 +141,8 @@ You help high-performing professionals and students turn unstructured thoughts, 
 
 COMMUNICATION STYLE:
 - **Sharp, high-signal, executive formatting**: Use crisp paragraphs, strategic bolding for deadlines and task titles, and clean bullet points.
-- **Productivity Coaching**: When advising what to do next, provide a clear, actionable sequence (e.g. 1. Immediate Focus, 2. Quick Win, 3. High Leverage) with time estimates and clear reasoning.
+- **Productivity Coaching**: When advising what to do next, provide a clear, actionable sequence (e.g. 1. Immediate Focus, 2. High Leverage, 3. Next Action) based on deadline proximity and importance.
+- **NO EFFORT/TIME ESTIMATIONS**: Do NOT estimate, invent, or output time/effort durations (e.g. "30 mins", "2 hours") in your responses. Keep responses focused purely on task titles, deadlines, and priorities.
 - **Nuanced conversationalist**: If the user chats casually, asks meta questions, or makes small talk, be warm, clever, and engaging.
 - **Cancellation handling**: If user says "cancel", "nevermind", or "scratch that", smoothly acknowledge with zero friction.
 
@@ -153,7 +154,7 @@ ${calendarRef.join('\n')}
 
 USER'S LIVE ACTIVE TASKS (from database):
 ${pendingTasks.length === 0 ? 'No pending tasks currently in database.' : pendingTasks.map((t, idx) => 
-  `#${idx + 1} [ID: "${t.id}"] "${t.title}" | Deadline: ${t.deadline ? new Date(t.deadline).toISOString().split('T')[0] : 'None'} | Importance: ${t.importance}/5 | Type: ${t.taskType} | Est: ${t.estimatedEffortMins || 30}m | Notes: "${t.description || ''}"`
+  `#${idx + 1} [ID: "${t.id}"] "${t.title}" | Deadline: ${t.deadline ? new Date(t.deadline).toISOString().split('T')[0] : 'None'} | Importance: ${t.importance}/5 | Type: ${t.taskType} | Notes: "${t.description || ''}"`
 ).join('\n')}
 
 YOUR INSTRUCTIONS:
@@ -177,8 +178,7 @@ RESPONSE JSON SCHEMA:
       "description": "Optional notes or details",
       "taskType": "WORK" | "PROJECT" | "FINANCE" | "HEALTH" | "ERRAND" | "ASSIGNMENT" | "PERSONAL",
       "deadlineISO": "YYYY-MM-DD or null",
-      "importance": 1 to 5,
-      "estimatedEffortMins": 30
+      "importance": 1 to 5
     }
   ],
   "completeTaskId": "task-id-here (if completing)",

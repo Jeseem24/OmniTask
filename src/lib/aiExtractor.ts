@@ -63,10 +63,9 @@ RULES:
 1. Extract clean, actionable task titles (e.g. "Email supervisor project selection", "Buy groceries").
 2. Resolve relative dates like "tomorrow", "this Friday", "next Tuesday" to ISO YYYY-MM-DD using the DATE REFERENCE table. If no date is given, set deadlineISO to null and isDeadlineAmbiguous to true.
 3. Assign importance: 1=Low, 3=Normal, 4=High, 5=Critical/Urgent.
-4. Estimate effort in minutes (e.g. 15, 30, 45, 60).
-5. Always return subtasks as [] unless explicit numbered sub-steps are listed.
-6. CRITICAL: If the user input is a greeting, small talk, casual question (e.g. "how are you", "what's up", "who are you"), cancellation keyword ("cancel", "stop", "no"), or does NOT describe an actionable task or duty, return an empty array [] without generating tasks.
-7. Return a valid JSON array of objects inside \`\`\`json ... \`\`\`.
+4. Always return subtasks as [] unless explicit numbered sub-steps are listed.
+5. CRITICAL: If the user input is a greeting, small talk, casual question (e.g. "how are you", "what's up", "who are you"), cancellation keyword ("cancel", "stop", "no"), or does NOT describe an actionable task or duty, return an empty array [] without generating tasks.
+6. Return a valid JSON array of objects inside \`\`\`json ... \`\`\`.
 
 EXAMPLE OUTPUT:
 [
@@ -76,7 +75,6 @@ EXAMPLE OUTPUT:
     "taskType": "WORK",
     "deadlineISO": "${todayISO}",
     "isDeadlineAmbiguous": false,
-    "estimatedEffortMins": 20,
     "importance": 4,
     "confidenceScore": 0.95,
     "subtasks": []

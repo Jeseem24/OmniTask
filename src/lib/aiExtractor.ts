@@ -147,40 +147,49 @@ export async function extractTasksFromImage(
   base64Image: string,
   mimeType: string = 'image/png',
   userTimezone?: string,
-  userDateISO?: string
+  userDateISO?: string,
+  captionText?: string
 ): Promise<ExtractedCandidateTask[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   const systemPrompt = getCalendarContextPrompt(userTimezone, userDateISO);
 
-  if (!apiKey) {
-    return generateFallbackExtraction('Image upload');
-  }
+  const promptText = captionText?.trim()
+    ? `${systemPrompt}\n\nUser Context/Caption:\n${captionText.trim()}\n\nAnalyze this image and any text/notices/deadlines visible in it and extract actionable tasks:`
+    : `${systemPrompt}\n\nAnalyze this image and any text/notices/deadlines visible in it and extract actionable tasks:`;
 
-  try {
-    const liveModel = await getLiveGeminiModel(apiKey);
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: liveModel,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: systemPrompt },
-            { inlineData: { data: base64Image, mimeType } },
-          ],
-        },
-      ],
-    });
-    const parsed = parseJsonResponse(response.text || '');
-    if (parsed.length > 0) return parsed;
-  } catch (error: any) {
-    if (error?.status === 404) {
-      invalidateModelCache('gemini');
+  if (apiKey) {
+    try {
+      const liveModel = await getLiveGeminiModel(apiKey);
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: liveModel,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: promptText },
+              { inlineData: { data: base64Image, mimeType } },
+            ],
+          },
+        ],
+      });
+      const parsed = parseJsonResponse(response.text || '');
+      if (parsed.length > 0) return parsed;
+    } catch (error: any) {
+      if (error?.status === 404) {
+        invalidateModelCache('gemini');
+      }
+      console.warn('Gemini image extraction error:', error);
     }
-    console.warn('Gemini image extraction error:', error);
   }
 
-  return generateFallbackExtraction('Image task');
+  // If vision didn't extract tasks, but user provided caption/text, extract from caption!
+  if (captionText && captionText.trim()) {
+    const textTasks = await extractTasksFromText(captionText, userTimezone, userDateISO);
+    if (textTasks.length > 0) return textTasks;
+  }
+
+  return [];
 }
 
 /**

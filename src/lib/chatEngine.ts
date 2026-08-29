@@ -76,15 +76,15 @@ export async function processUserChatMessage(
     for (const att of imageAttachments) {
       try {
         const base64Image = att.buffer.toString('base64');
-        combinedCandidates.push(...await extractTasksFromImage(base64Image, att.mimeType, userTimezone, userDateISO));
+        combinedCandidates.push(...await extractTasksFromImage(base64Image, att.mimeType, userTimezone, userDateISO, userText));
       } catch (err) { console.error('Image error:', err); }
     }
     const count = combinedCandidates.length;
     return {
       role: 'assistant',
       content: count > 0
-        ? `Analyzed image and extracted **${count} task${count > 1 ? 's' : ''}**. Click **Add** to confirm:`
-        : `Reviewed your image, but found no explicit action items.`,
+        ? `Analyzed image ${userText ? 'and notes ' : ''}and extracted **${count} task${count > 1 ? 's' : ''}**. Click **Add** to confirm:`
+        : `Reviewed your attachment, but found no explicit action items.`,
       attachmentName: imageAttachments[0]?.name,
       attachmentType: 'image',
       candidateTasks: count > 0 ? combinedCandidates : undefined,

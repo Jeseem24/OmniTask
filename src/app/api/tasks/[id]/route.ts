@@ -53,6 +53,7 @@ export async function PATCH(
       importance: newImportance,
       taskType: newTaskType,
       estimatedEffortMins: newEffort,
+      userModified: true,
     });
     updateData.userModified = true;
 

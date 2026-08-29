@@ -78,11 +78,19 @@ export function calculatePriorityScore(inputs: TaskPriorityInputs): number {
   return Math.round(score * 10) / 10;
 }
 
-export function getPriorityTier(score: number): {
+export function getPriorityTier(score: number, importance?: number): {
   label: 'Critical' | 'High' | 'Medium' | 'Low';
   colorClass: string;
   bgClass: string;
 } {
+  // If explicit importance is provided (1-5), directly map the tier
+  if (importance !== undefined && importance !== null) {
+    if (importance >= 5) return { label: 'Critical', colorClass: 'text-red-400', bgClass: 'bg-red-500/10 border-red-500/20' };
+    if (importance === 4) return { label: 'High', colorClass: 'text-amber-400', bgClass: 'bg-amber-500/10 border-amber-500/20' };
+    if (importance === 3) return { label: 'Medium', colorClass: 'text-emerald-400', bgClass: 'bg-emerald-500/10 border-emerald-500/20' };
+    return { label: 'Low', colorClass: 'text-zinc-400', bgClass: 'bg-zinc-500/10 border-zinc-500/20' };
+  }
+
   if (score >= 120) {
     return { label: 'Critical', colorClass: 'text-red-400', bgClass: 'bg-red-500/10 border-red-500/20' };
   } else if (score >= 80) {

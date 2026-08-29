@@ -98,7 +98,7 @@ export default function TaskCard({
   const [isSaving, setIsSaving] = useState(false);
 
   const isCompleted = task.status === 'COMPLETED';
-  const tier = getPriorityTier(task.priorityScore);
+  const tier = getPriorityTier(task.priorityScore, task.importance);
   const overdue = !isCompleted && isOverdue(task.deadline);
   const dueToday = !isCompleted && isDueToday(task.deadline);
   const deadlineText = getRelativeDeadline(task.deadline);

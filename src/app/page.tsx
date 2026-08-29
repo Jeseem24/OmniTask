@@ -220,7 +220,7 @@ export default function Home() {
   });
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
+    const list = tasks.filter((t) => {
       if (statusFilter === 'ACTIVE' && t.status === 'COMPLETED') return false;
       if (statusFilter === 'DONE' && t.status !== 'COMPLETED') return false;
       if (searchQuery.trim()) {
@@ -230,6 +230,16 @@ export default function Home() {
         return matchTitle || matchDesc;
       }
       return true;
+    });
+
+    // Always keep active/unfinished tasks at the top, completed tasks at the bottom
+    return [...list].sort((a, b) => {
+      const aDone = a.status === 'COMPLETED' ? 1 : 0;
+      const bDone = b.status === 'COMPLETED' ? 1 : 0;
+      if (aDone !== bDone) {
+        return aDone - bDone;
+      }
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
     });
   }, [tasks, statusFilter, searchQuery]);
 

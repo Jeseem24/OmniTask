@@ -45,6 +45,7 @@ export async function GET(req: Request) {
         source: true,
       },
       orderBy: [
+        { status: 'desc' }, // 'PENDING' before 'COMPLETED'
         { priorityScore: 'desc' },
         { deadline: 'asc' },
       ],

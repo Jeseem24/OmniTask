@@ -61,7 +61,7 @@ export async function getLiveGroqModel(apiKey?: string): Promise<string> {
 }
 
 /**
- * Dynamically queries Gemini API for currently active models,
+ * Dynamically queries Gemini API for currently active models from Google's live model registry,
  * selecting the latest working flash/pro model.
  */
 export async function getLiveGeminiModel(apiKey?: string): Promise<string> {
@@ -74,35 +74,53 @@ export async function getLiveGeminiModel(apiKey?: string): Promise<string> {
 
   try {
     const ai = new GoogleGenAI({ apiKey: key });
-    // Known priority candidates in order of preference
-    const candidates = [
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-flash-latest',
-      'gemini-3.5-flash-lite',
-      'gemini-3-flash-preview',
-    ];
+    const liveModels: string[] = [];
 
-    for (const candidate of candidates) {
-      try {
-        await ai.models.generateContent({
-          model: candidate,
-          contents: 'ping',
-        });
-        cachedGeminiModel = { model: candidate, lastChecked: Date.now() };
-        console.log(`[Auto-Model] Selected live Gemini model: ${candidate}`);
-        return candidate;
-      } catch (err: any) {
-        if (err?.status === 404 || err?.message?.includes('not found') || err?.message?.includes('deprecated')) {
-          continue; // Try next candidate
+    // Query Google's live model registry dynamically
+    const modelIterator = await ai.models.list();
+    for await (const m of modelIterator) {
+      if (m.name) {
+        const cleanName = m.name.replace(/^models\//, '');
+        // Only include multimodal text & vision generation models (exclude tts/audio/imagegen/embedding only)
+        if (
+          cleanName.includes('flash') ||
+          cleanName.includes('pro') ||
+          cleanName.includes('gemini')
+        ) {
+          if (!cleanName.includes('tts') && !cleanName.includes('embedding') && !cleanName.includes('veo') && !cleanName.includes('lyria')) {
+            liveModels.push(cleanName);
+          }
         }
-        // If it's a rate limit or other error, model exists
-        cachedGeminiModel = { model: candidate, lastChecked: Date.now() };
-        return candidate;
       }
     }
+
+    // Capability hierarchy for Gemini: prefer newest generation flash, then pro
+    const preferenceRules = [
+      (id: string) => id === 'gemini-3.7-flash',
+      (id: string) => id === 'gemini-3.6-flash',
+      (id: string) => id === 'gemini-3.5-flash',
+      (id: string) => id.includes('3.6') && id.includes('flash'),
+      (id: string) => id.includes('3.5') && id.includes('flash'),
+      (id: string) => id === 'gemini-flash-latest',
+      (id: string) => id.includes('3') && id.includes('flash'),
+      (id: string) => id.includes('pro-latest') || id.includes('3.5-pro'),
+    ];
+
+    for (const rule of preferenceRules) {
+      const match = liveModels.find(rule);
+      if (match) {
+        cachedGeminiModel = { model: match, lastChecked: Date.now() };
+        console.log(`[Auto-Model] Discovered and selected live Gemini model: ${match}`);
+        return match;
+      }
+    }
+
+    if (liveModels.length > 0) {
+      cachedGeminiModel = { model: liveModels[0], lastChecked: Date.now() };
+      return liveModels[0];
+    }
   } catch (err) {
-    console.warn('[Auto-Model] Error discovering Gemini models, using fallback:', err);
+    console.warn('[Auto-Model] Error discovering live Gemini models, using fallback:', err);
   }
 
   return 'gemini-3.6-flash';

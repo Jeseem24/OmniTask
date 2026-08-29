@@ -404,6 +404,47 @@ async function compressImageIfNeeded(file: File): Promise<File> {
     }
   };
 
+  const handleAddAllCandidateTasks = async (msgId: string, tasksToAdd: ExtractedCandidateTask[]) => {
+    if (!tasksToAdd || tasksToAdd.length === 0) return;
+    try {
+      const res = await fetch('/api/tasks/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmedTasks: tasksToAdd }),
+      });
+
+      if (res.ok) {
+        toast.success(`Added all ${tasksToAdd.length} tasks to your queue!`);
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === msgId) {
+              return { ...msg, candidateTasks: [], confirmedCount: (msg.confirmedCount || 0) + tasksToAdd.length };
+            }
+            return msg;
+          })
+        );
+        if (onTasksUpdated) onTasksUpdated();
+      } else {
+        toast.error('Failed to add tasks');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Network error adding tasks');
+    }
+  };
+
+  const handleDiscardAllCandidateTasks = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id === msgId) {
+          return { ...msg, candidateTasks: [] };
+        }
+        return msg;
+      })
+    );
+    toast.info('Discarded candidate cards');
+  };
+
   const quickPrompts = [
     { label: '✨ What should I do now?', query: 'What should I do now?' },
     { label: '📅 What tasks are due soon?', query: 'What tasks are due soon?' },
@@ -510,11 +551,32 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                 {/* Candidate Task Cards */}
                 {msg.candidateTasks && msg.candidateTasks.length > 0 && (
                   <div className="space-y-3 pt-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2 flex-wrap pb-1">
                       <span className="text-[10px] font-mono font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
                         <Sparkles className="w-3 h-3 text-indigo-400 animate-pulse" /> Action Cards ({msg.candidateTasks.length})
                       </span>
-                      <span className="text-[10px] text-zinc-500 font-medium">Review & confirm</span>
+                      {msg.candidateTasks.length > 1 ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleAddAllCandidateTasks(msg.id, msg.candidateTasks!)}
+                            className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 hover:border-emerald-500/60 rounded-lg text-[10px] font-bold transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_12px_rgba(16,185,129,0.25)] cursor-pointer"
+                            title="Add all extracted tasks at once"
+                          >
+                            <Check className="w-3 h-3" /> Add All ({msg.candidateTasks.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDiscardAllCandidateTasks(msg.id)}
+                            className="px-2 py-1 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg text-[10px] font-semibold transition-all active:scale-95 border border-white/[0.08] cursor-pointer"
+                            title="Dismiss all cards"
+                          >
+                            <X className="w-3 h-3" /> Discard All
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-zinc-500 font-medium">Review & confirm</span>
+                      )}
                     </div>
 
                     {msg.candidateTasks.map((task, idx) => (

@@ -98,15 +98,20 @@ export default function ChatInterface({ onTasksUpdated }: ChatInterfaceProps) {
   const baseTextRef = useRef<string>('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isSending]);
+  }, [messages.length, isSending]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -504,7 +509,7 @@ async function compressImageIfNeeded(file: File): Promise<File> {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 custom-scrollbar">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 custom-scrollbar">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -737,7 +742,6 @@ async function compressImageIfNeeded(file: File): Promise<File> {
               </div>
             </div>
           )}
-          <div ref={messagesEndRef} />
         </div>
 
         {/* Floating Quick Prompt Chips */}

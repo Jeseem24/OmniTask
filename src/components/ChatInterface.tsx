@@ -674,11 +674,11 @@ async function compressImageIfNeeded(file: File): Promise<File> {
                               type="date"
                               value={
                                 task.deadlineISO
-                                  ? new Date(task.deadlineISO).toISOString().split('T')[0]
+                                  ? (task.deadlineISO.includes('T') ? task.deadlineISO.split('T')[0] : task.deadlineISO)
                                   : ''
                               }
                               onChange={(e) => {
-                                const newDateVal = e.target.value ? new Date(e.target.value).toISOString() : null;
+                                const newDateVal = e.target.value || null;
                                 const updated = { ...task, deadlineISO: newDateVal, userModified: true };
                                 setMessages((prev) =>
                                   prev.map((m) => {

@@ -40,6 +40,8 @@ export async function PATCH(
 
     if (body.deadlineISO !== undefined) {
       updateData.deadline = body.deadlineISO ? new Date(body.deadlineISO) : null;
+    } else if (body.deadline !== undefined) {
+      updateData.deadline = body.deadline ? new Date(body.deadline) : null;
     }
 
     // Recalculate Priority Score if fields changed

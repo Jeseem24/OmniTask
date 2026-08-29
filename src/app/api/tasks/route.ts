@@ -75,6 +75,7 @@ export async function POST(req: Request) {
       importance: importance || 3,
       taskType: taskType || 'ASSIGNMENT',
       estimatedEffortMins: estimatedEffortMins || 30,
+      userModified: true,
     });
 
     const newTask = await prisma.task.create({

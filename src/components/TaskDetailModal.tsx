@@ -51,7 +51,7 @@ export default function TaskDetailModal({
   }, [onClose]);
 
   const isCompleted = task.status === 'COMPLETED';
-  const tier = getPriorityTier(task.priorityScore);
+  const tier = getPriorityTier(task.priorityScore, importance);
 
   const handleSave = async () => {
     if (!title.trim()) return;
